@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "id": "godweer",
+  "version": "${version}",
+  "name": "Phone",
+  "description": "Who needs?",
+  "authors": ["Kvass"],
+  "contact": {},
+  "license": "Sosiski",
+  "icon": "assets/godweer/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "pub.godweer.Client"
+    ]
+  },
+  "mixins": [
+    "godweer.mixins.json"
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

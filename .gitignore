@@ -1,0 +1,22 @@
+# Gradle
+.gradle/
+build/
+bin/
+classes/
+
+# IDE / editors
+.idea/
+*.iml
+.vscode/
+.zcode/
+.qodo/
+.postman/
+
+# Minecraft run dirs
+run/
+runs/
+*.local
+
+# OS junk
+Thumbs.db
+Desktop.ini
