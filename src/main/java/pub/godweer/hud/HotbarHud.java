@@ -4,13 +4,13 @@ import net.minecraft.core.NonNullList;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import pub.godweer.IMinecraft;
-import pub.godweer.enjoy.event.EventTarget;
-import pub.godweer.enjoy.event.list.Render2DEvent;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.Render2DUtil;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
+import pub.godweer.event.EventTarget;
+import pub.godweer.event.list.Render2DEvent;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.Render2DUtil;
+import pub.godweer.util.render.font.Fonts;
 
 /**
  * Custom hotbar in HUD style: one solid panel, bars inside, animated selection.

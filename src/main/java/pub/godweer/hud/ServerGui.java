@@ -9,10 +9,10 @@ import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.PlayerScoreEntry;
 import net.minecraft.world.scores.Scoreboard;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
 
 import java.util.ArrayList;
 import java.util.Comparator;

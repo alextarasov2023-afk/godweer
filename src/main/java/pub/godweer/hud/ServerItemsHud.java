@@ -3,14 +3,14 @@ package pub.godweer.hud;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import pub.godweer.Client;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.Render2DUtil;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.enjoy.event.list.Render2DEvent;
-import pub.godweer.kitty.module.impl.misc.ServerHelper;
-import pub.godweer.kitty.module.settings.impl.BindSetting;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.Render2DUtil;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.event.list.Render2DEvent;
+import pub.godweer.module.impl.misc.ServerHelper;
+import pub.godweer.module.settings.impl.BindSetting;
 
 import java.util.HashMap;
 import java.util.List;
@@ -57,20 +57,43 @@ public final class ServerItemsHud extends HudElement implements IMinecraft {
         GuiGraphicsExtractor extractor = event.getGuiGraphicsExtractor();
         int accent = Theme.getAccentColor();
 
-        float totalW = 0.0F;
-        for (ServerHelper.HudItem item : entries) {
-            float a = anim.getOrDefault(item.key(), 0.0F);
-            totalW += (pillWidth(bindLabel(item)) + GAP) * a;
-        }
-        if (totalW > GAP) totalW -= GAP;
-        this.width = Math.max(40.0F, totalW);
-        this.height = H;
+        // Пилюли включённых наборов ServerHelper в одну строку влезают не всегда:
+        // считаем перенос по правому краю экрана и растём вниз строками.
+        int n = entries.size();
+        String[] labels = new String[n];
+        float[] widths = new float[n];
+        float[] slotX = new float[n];
+        float[] slotY = new float[n];
+        float maxRow = Math.max(160.0F, mc.getWindow().getGuiScaledWidth() - x - 8.0F);
 
-        float cx = x;
-        for (ServerHelper.HudItem item : entries) {
+        float rowW = 0.0F;
+        float widest = 0.0F;
+        int rows = 1;
+        for (int i = 0; i < n; i++) {
+            ServerHelper.HudItem item = entries.get(i);
+            labels[i] = bindLabel(item);
+            widths[i] = pillWidth(labels[i]);
+
+            if (rowW > 0.0F && rowW + GAP + widths[i] > maxRow) {
+                rows++;
+                rowW = 0.0F;
+            }
+            slotX[i] = rowW;
+            slotY[i] = (rows - 1) * (H + GAP);
+            rowW += widths[i] + GAP;
+            widest = Math.max(widest, rowW - GAP);
+        }
+
+        this.width = Math.max(40.0F, widest);
+        this.height = rows * H + (rows - 1) * GAP;
+
+        for (int i = 0; i < n; i++) {
+            ServerHelper.HudItem item = entries.get(i);
             int count = helper == null ? 0 : helper.countItem(item.key());
-            String label = bindLabel(item);
-            float w = pillWidth(label);
+            String label = labels[i];
+            float w = widths[i];
+            float cx = x + slotX[i];
+            float cy = y + slotY[i];
 
             float a = anim.getOrDefault(item.key(), 0.0F);
             a += (1.0F - a) * 0.24F;
@@ -87,20 +110,20 @@ public final class ServerItemsHud extends HudElement implements IMinecraft {
             float pw = w * a;
             boolean empty = count <= 0;
 
-            Render2D.drawRoundedRectWithOutline(cx, y, pw, H, RADIUS,
+            Render2D.drawRoundedRectWithOutline(cx, cy, pw, H, RADIUS,
                     ColorUtil.withAlpha(accent, Math.round((empty ? 12 : 30) * a)),
                     0.65F,
                     ColorUtil.withAlpha(accent, Math.round((empty ? 45 : 95) * a)));
 
             if (f > 0.02F) {
-                Render2D.drawRoundedOutline(cx - 1.0F, y - 1.0F, pw + 2.0F, H + 2.0F, RADIUS + 1.0F, 1.0F,
+                Render2D.drawRoundedOutline(cx - 1.0F, cy - 1.0F, pw + 2.0F, H + 2.0F, RADIUS + 1.0F, 1.0F,
                         ColorUtil.withAlpha(accent, Math.round(200 * f)));
             }
 
             if (extractor != null && pw > ICON + PAD_X * 2.0F) {
                 Render2DUtil.flush();
                 float iconX = cx + PAD_X + (ICON - 16.0F) / 2.0F;
-                float iconY = y + (H - ICON) / 2.0F + (ICON - 16.0F) / 2.0F;
+                float iconY = cy + (H - ICON) / 2.0F + (ICON - 16.0F) / 2.0F;
                 extractor.pose().pushMatrix();
                 extractor.pose().translate(iconX, iconY);
                 float sc = ICON / 16.0F;
@@ -108,16 +131,14 @@ public final class ServerItemsHud extends HudElement implements IMinecraft {
                 extractor.item(item.icon(), 0, 0);
                 extractor.pose().popMatrix();
                 if (empty) {
-                    Render2D.drawRoundedRect(cx + PAD_X - 1.0F, y + (H - ICON) / 2.0F - 1.0F,
+                    Render2D.drawRoundedRect(cx + PAD_X - 1.0F, cy + (H - ICON) / 2.0F - 1.0F,
                             ICON + 2.0F, ICON + 2.0F, 3.0F, ColorUtil.rgba(10, 11, 17, Math.round(160 * a)));
                 }
             }
 
             Fonts.drawString(Fonts.SF_MEDIUM, label, cx + PAD_X + ICON + 4.0F,
-                    y + (H - Fonts.SF_MEDIUM.textHeight(TEXT)) / 2.0F + 0.35F, TEXT,
+                    cy + (H - Fonts.SF_MEDIUM.textHeight(TEXT)) / 2.0F + 0.35F, TEXT,
                     ColorUtil.multiplyAlpha(empty ? HudStyle.TEXT_DIM : HudStyle.TEXT_PRIMARY, a));
-
-            cx += pw + GAP;
         }
     }
 

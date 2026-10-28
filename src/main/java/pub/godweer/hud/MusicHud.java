@@ -3,19 +3,19 @@ package pub.godweer.hud;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.resources.Identifier;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.client.music.MusicAction;
-import pub.godweer.auxiliary.client.music.MusicArtwork;
-import pub.godweer.auxiliary.client.music.MusicService;
-import pub.godweer.auxiliary.client.music.LyricsProvider;
-import pub.godweer.auxiliary.client.music.MusicSnapshot;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.auxiliary.render.renders.font.IconUse;
-import pub.godweer.enjoy.event.EventTarget;
-import pub.godweer.enjoy.event.list.MouseInputEvent;
-import pub.godweer.enjoy.event.list.Render2DEvent;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.music.MusicAction;
+import pub.godweer.util.music.MusicArtwork;
+import pub.godweer.util.music.MusicService;
+import pub.godweer.util.music.LyricsProvider;
+import pub.godweer.util.music.MusicSnapshot;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.render.font.IconUse;
+import pub.godweer.event.EventTarget;
+import pub.godweer.event.list.MouseInputEvent;
+import pub.godweer.event.list.Render2DEvent;
 
 import java.util.List;
 import java.util.Locale;
@@ -210,8 +210,8 @@ public final class MusicHud extends HudElement implements IMinecraft {
                     ColorUtil.withAlpha(accent, 38));
             Render2D.drawRoundedOutline(artX, artY, ART_SIZE, ART_SIZE, ART_RADIUS, 0.7F,
                     ColorUtil.withAlpha(accent, 90));
-            Fonts.drawIconCentered(IconUse.MUSIC, artX + ART_SIZE / 2.0F, artY + ART_SIZE / 2.0F,
-                    ART_SIZE * 0.4F, ColorUtil.withAlpha(accent, 220));
+            Fonts.drawIconFittedCentered(IconUse.MUSIC, artX + ART_SIZE / 2.0F, artY + ART_SIZE / 2.0F,
+                    ART_SIZE * 0.44F, ColorUtil.withAlpha(accent, 220));
         }
 
         // ----- text -----

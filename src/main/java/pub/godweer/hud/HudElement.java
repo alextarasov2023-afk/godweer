@@ -1,6 +1,6 @@
 package pub.godweer.hud;
 
-import pub.godweer.enjoy.event.list.Render2DEvent;
+import pub.godweer.event.list.Render2DEvent;
 
 /**
  * Draggable HUD element. Move with LMB while chat is open.

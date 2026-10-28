@@ -17,6 +17,9 @@ run/
 runs/
 *.local
 
+# Локальные бэкапы исходников и старых сборок
+.trash/
+
 # OS junk
 Thumbs.db
 Desktop.ini

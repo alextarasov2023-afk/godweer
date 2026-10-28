@@ -2,14 +2,14 @@ package pub.godweer.hud;
 
 import pub.godweer.Client;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.auxiliary.render.renders.font.IconUse;
-import pub.godweer.enjoy.event.list.Render2DEvent;
-import pub.godweer.kitty.module.Category;
-import pub.godweer.kitty.module.Module;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.render.font.IconUse;
+import pub.godweer.event.list.Render2DEvent;
+import pub.godweer.module.Category;
+import pub.godweer.module.Module;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -168,7 +168,7 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
         int accent = Theme.getAccentColor();
 
         HudStyle.drawCard(x, y, width, height, RADIUS);
-        HudStyle.drawHeader(x, y, width, HEADER_H, "Binds", IconUse.KEYBIND);
+        HudStyle.drawHeader(x, y, width, HEADER_H, "Binds", IconUse.KEYBOARD);
 
         Render2D.pushScissor(x, y + HEADER_H + 1.0F, width, Math.max(0.0F, height - HEADER_H - 1.0F));
 
@@ -182,9 +182,9 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
 
             // Category icon
             float cx = x + PAD_X + slide;
-            Fonts.drawIcon(catIcon(r.category), cx, midY - 7.5F / 2.0F + 0.2F, 7.5F,
+            Fonts.drawIconFitted(catIcon(r.category), cx, midY, 8.0F,
                     ColorUtil.withAlpha(accent, Math.round(215 * a)));
-            cx += 11.0F;
+            cx += Fonts.iconFittedWidth(catIcon(r.category), 8.0F) + 3.5F;
 
             // Keycap pill on the right
             float keySize = 7.0F;

@@ -7,11 +7,11 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.auxiliary.render.renders.font.IconUse;
-import pub.godweer.enjoy.event.list.Render2DEvent;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.render.font.IconUse;
+import pub.godweer.event.list.Render2DEvent;
 
 import java.util.ArrayList;
 import java.util.Collection;

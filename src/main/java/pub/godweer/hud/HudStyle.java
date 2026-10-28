@@ -1,10 +1,10 @@
 package pub.godweer.hud;
 
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.auxiliary.render.renders.font.IconUse;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.render.font.IconUse;
 
 /**
  * Shared visual language for HUD cards:
@@ -62,13 +62,12 @@ public final class HudStyle {
         Fonts.drawString(Fonts.SF_MEDIUM, title, x + padX, titleY, titleSize, TEXT_PRIMARY);
 
         if (rightIcon != null) {
-            // Emoji-глифы (например нота Music) выше иконочных при том же размере,
-            // поэтому центр считаем по реальным метрикам конкретного шрифта.
-            float iconSz = rightIcon.emoji ? 7.0F : 8.5F;
-            float glyphW = Fonts.getIconWidth(rightIcon, iconSz);
-            float ix = x + w - padX - glyphW;
-            float iy = y + (headerH - Fonts.getIconHeight(rightIcon, iconSz)) / 2.0F;
-            Fonts.drawIcon(rightIcon, ix, iy, iconSz, ColorUtil.withAlpha(accent, 255));
+            // Высота подгоняется под реальную видимую часть глифа: у иконок из разных
+            // шрифтов (в т.ч. эмодзи) при одном размере шрифта она разная.
+            float iconH = 8.5F;
+            float glyphW = Fonts.iconFittedWidth(rightIcon, iconH);
+            Fonts.drawIconFitted(rightIcon, x + w - padX - glyphW, y + headerH / 2.0F,
+                    iconH, ColorUtil.withAlpha(accent, 255));
         }
 
         // Full-width divider line

@@ -1,7 +1,7 @@
 package net.minecraft.client.renderer.rendertype;
 
 import com.mojang.renderpearl.api.pipeline.RenderPipeline;
-import pub.godweer.auxiliary.render.pipline.PiplinePost;
+import pub.godweer.util.render.pipeline.PiplinePost;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;

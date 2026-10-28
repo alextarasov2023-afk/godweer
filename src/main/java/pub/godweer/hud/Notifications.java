@@ -2,14 +2,14 @@ package pub.godweer.hud;
 
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import pub.godweer.IMinecraft;
-import pub.godweer.auxiliary.client.clients.ColorUtil;
-import pub.godweer.auxiliary.client.clients.Theme;
-import pub.godweer.auxiliary.render.Render2D;
-import pub.godweer.auxiliary.render.renders.font.Fonts;
-import pub.godweer.auxiliary.render.renders.font.IconUse;
-import pub.godweer.enjoy.event.EventTarget;
-import pub.godweer.enjoy.event.list.Render2DEvent;
-import pub.godweer.kitty.display.mainmenu.PanelRefractions;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.render.font.IconUse;
+import pub.godweer.event.EventTarget;
+import pub.godweer.event.list.Render2DEvent;
+import pub.godweer.ui.clickgui.PanelRefractions;
 
 import java.util.ArrayDeque;
 import java.util.Iterator;
@@ -137,9 +137,8 @@ public final class Notifications implements IMinecraft {
                         ColorUtil.withAlpha(t.accent, Math.round(34 * a)),
                         0.65F, ColorUtil.withAlpha(t.accent, Math.round(95 * a)));
 
-                float iconSize = 8.0F;
-                Fonts.drawIconCentered(t.icon, slotX + SLOT / 2.0F, slotY + SLOT / 2.0F,
-                        iconSize, ColorUtil.multiplyAlpha(t.accent, a));
+                Fonts.drawIconFittedCentered(t.icon, slotX + SLOT / 2.0F, slotY + SLOT / 2.0F,
+                        9.0F, ColorUtil.multiplyAlpha(t.accent, a));
 
                 String shown = ServerGui.ellipsize(t.text, W - (SLOT + 18.0F), TEXT);
                 Fonts.drawString(Fonts.SF_MEDIUM, shown, slotX + SLOT + 6.0F,
