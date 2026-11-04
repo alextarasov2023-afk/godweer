@@ -26,7 +26,6 @@ import pub.godweer.module.impl.render.FireHands;
 import pub.godweer.module.impl.render.OutlineHands;
 import pub.godweer.module.impl.render.ShaderHands;
 import pub.godweer.module.impl.render.GlowHands;
-import pub.godweer.module.impl.render.Removals;
 import pub.godweer.util.RenderExtend;
 import pub.godweer.util.render.Render3DUtil;
 
@@ -50,7 +49,11 @@ public abstract class GameRendererMixin {
         Render3DUtil.captureLevelProjection(projectionMatrix);
         return projectionMatrix;
     }
-    @Inject(method = "renderLevel", at = @At("TAIL"))
+    // Не TAIL renderLevel, а точка вызова render3dHud: TAIL — это уже ПОСЛЕ пасса
+    // рук, и ESP ложился поверх рук от первого лица. render3dHud вызывается сразу
+    // после LevelRenderer.render и до renderItemInHand, поэтому мир готов, а руки
+    // рисуются поверх ESP.
+    @Inject(method = "renderLevel", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/GameRenderer;render3dHud(Lnet/minecraft/client/renderer/state/level/CameraRenderState;Lnet/minecraft/client/renderer/state/level/PlayerRenderState;Lnet/minecraft/client/renderer/state/OptionsRenderState;Z)V"))
     private void onRender3D(CallbackInfo ci) {
         // В 26.3 GameRenderer.renderLevel() не принимает DeltaTracker.
         DeltaTracker deltaTracker = this.minecraft.getDeltaTracker();
@@ -61,19 +64,11 @@ public abstract class GameRendererMixin {
             RenderExtend.exit3D();
         }
     }
-    @Inject(method = "bobHurt", at = @At("HEAD"), cancellable = true)
-    private void onBobHurt(CameraRenderState cameraState, PoseStack poseStack, CallbackInfo ci) {
-        if (Removals.INSTANCE != null && Removals.INSTANCE.isEnabled() && Removals.INSTANCE.getOverlays().isEnabled("HurtCam")) {
-            ci.cancel();
-        }
-    }
 
-    /**
-     * В 26.3 vanilla-пасс рук создаётся прямо в renderItemInHand и закрывается сразу
-     * после renderAllFeatures, поэтому эффекты рук разделены:
-     * - снапшот сцены (копия глубины) — до открытия пасса (encoder свободен);
-     * - mask/blur/composite-пассы — в TAIL renderItemInHand, после close().
-     */
+    // В 26.3 vanilla-пасс рук создаётся прямо в renderItemInHand и закрывается сразу
+    // после renderAllFeatures, поэтому эффекты рук разделены:
+    // - снапшот сцены (копия глубины) — до открытия пасса (encoder свободен);
+    // - mask/blur/composite-пассы — в TAIL renderItemInHand, после close().
     @WrapOperation(
             method = "renderItemInHand",
             at = @At(

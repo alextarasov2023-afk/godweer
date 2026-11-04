@@ -26,8 +26,12 @@ public final class ChamsRenderTypes {
                 throw new IllegalArgumentException("unknown chams style: " + style);
             }
             RenderPipeline pipeline = through ? passes.through() : passes.normal();
+            // Any render type whose pipeline blends is routed to the OIT pass when
+            // Transparency is on "shader", and that pass throws for pipelines with no
+            // OIT set. Forcing the solid model phase keeps the classic blended draw —
+            // the same escape vanilla uses for wolf_armor_cracks.
             return RenderType.create("godweer_chams_" + style + (through ? "_through" : ""),
-                    RenderSetup.builder(pipeline).createRenderSetup());
+                    RenderSetup.builder(pipeline).withForcedSolidModelPhase().createRenderSetup());
         });
     }
 

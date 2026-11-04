@@ -22,7 +22,6 @@ import pub.godweer.event.list.EventPreMotion;
 import pub.godweer.event.list.EventSprint;
 import pub.godweer.event.list.PlayerTickEvent;
 import pub.godweer.module.impl.movement.NoForward;
-import pub.godweer.module.impl.player.AntiPush;
 
 /**
  * Create by daun kvass
@@ -55,13 +54,6 @@ public abstract class LocalPlayerMixin {
         LocalPlayer player = (LocalPlayer) (Object) this;
         Client.getInstance().getEventManager().call(new PlayerTickEvent().set(player, PlayerTickEvent.Phase.POST));
     }
-    @Inject(method = "moveTowardsClosestSpace", at = @At("HEAD"), cancellable = true)
-    private void onMoveTowardsClosestSpace(double x, double z, CallbackInfo ci) {
-        if (AntiPush.INSTANCE.isEnabled() && AntiPush.INSTANCE.modes.isEnabled("Blocks")) {
-            ci.cancel();
-        }
-    }
-
     @Inject(method = "aiStep", at = @At("HEAD"))
     private void onAiStep(CallbackInfo ci) {
         LocalPlayer player = (LocalPlayer) (Object) this;

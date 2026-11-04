@@ -35,6 +35,12 @@ public final class BindSetting extends Setting<List<Integer>> {
     }
 
     private List<Meta> meta = List.of();
+    /**
+     * Общий бинд: на одной клавише может висеть несколько таких, и Binds.detach()
+     * у них клавишу не отбирает. Так живут бинды предметов ServerHelper — выбор
+     * между ними делает колесо на зажатой клавише.
+     */
+    private boolean exclusive = true;
 
     public BindSetting(String name) {
         this(name, List.of());
@@ -70,6 +76,16 @@ public final class BindSetting extends Setting<List<Integer>> {
 
     public static int rawButton(int bindCode) {
         return KeyUtil.toMouseButton(bindCode);
+    }
+
+    /** Бинд перестаёт участвовать в захвате клавиши (см. Binds). */
+    public BindSetting allowShared() {
+        this.exclusive = false;
+        return this;
+    }
+
+    public boolean isExclusive() {
+        return exclusive;
     }
 
     public boolean isBound() {

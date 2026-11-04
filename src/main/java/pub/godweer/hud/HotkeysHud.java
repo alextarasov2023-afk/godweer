@@ -3,7 +3,6 @@ package pub.godweer.hud;
 import pub.godweer.Client;
 import pub.godweer.IMinecraft;
 import pub.godweer.util.style.ColorUtil;
-import pub.godweer.util.style.Theme;
 import pub.godweer.util.render.Render2D;
 import pub.godweer.util.render.font.Fonts;
 import pub.godweer.util.render.font.IconUse;
@@ -20,31 +19,27 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * Binds (Hotkeys) HUD:
- * Clean header ("Binds" + right icon + divider), smooth appear/disappear animations,
- * category icons, and sleek keycaps.
+ * Binds HUD as the reference screenshot draws it: one header pill, then one pill
+ * per enabled module — name on the left, a thin stroke and the key on the right.
+ * No keycap box, no shared card.
  */
 public final class HotkeysHud extends HudElement implements IMinecraft {
 
-    private static final float PAD_X = 8.0F;
-    private static final float PAD_BOTTOM = 5.0F;
-    private static final float HEADER_H = 19.0F;
-    private static final float ROW_H = 14.5F;
-    private static final float RADIUS = 8.0F;
+    private static final float ROW_GAP = 3.0F;
+    private static final float NAME = 7.5F;
+    private static final float KEY = 7.0F;
 
     private static final class BindRow {
         final String id;
         String name;
         String keyText;
-        Category category;
         float anim;
         boolean present;
 
-        BindRow(String id, String name, String keyText, Category category) {
+        BindRow(String id, String name, String keyText) {
             this.id = id;
             this.name = name;
             this.keyText = keyText;
-            this.category = category;
             this.anim = 0.0F;
             this.present = true;
         }
@@ -58,18 +53,8 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
         super("hotkeys", "Hotkeys", 12.0F, 145.0F, 128.0F, 76.0F);
     }
 
-    private static IconUse catIcon(Category c) {
-        if (c == null) return IconUse.FIGHT;
-        return switch (c) {
-            case COMBAT -> IconUse.FIGHT;
-            case MOVEMENT -> IconUse.MOVEMENT;
-            case RENDER -> IconUse.RENDER;
-            case PLAYER -> IconUse.PLAYER;
-            case MISC -> IconUse.MISC;
-        };
-    }
-
     private void syncBinds() {
+        if (!beginSyncFrame()) return;
         for (BindRow r : rows.values()) {
             r.present = false;
         }
@@ -82,38 +67,32 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
                 String keyStr = m.getBind().getDisplayValue();
                 if (keyStr == null || keyStr.equalsIgnoreCase("NONE") || keyStr.isEmpty()) continue;
 
-                String id = m.getName().toLowerCase(Locale.ROOT);
-                upsert(id, m.getName(), keyStr, m.getCategory());
+                upsert(m.getName().toLowerCase(Locale.ROOT), m.getName(), keyStr);
                 anyActive = true;
             }
         }
 
         if (!anyActive && HudManager.editMode()) {
-            upsert("speed", "Speed", "G", Category.MOVEMENT);
-            upsert("timer", "Timer", "X", Category.MOVEMENT);
-            upsert("waterspeed", "WaterSpeed", "V", Category.MOVEMENT);
+            upsert("speed", "Speed", "G");
         }
 
         Iterator<Map.Entry<String, BindRow>> it = rows.entrySet().iterator();
         while (it.hasNext()) {
             BindRow r = it.next().getValue();
-            float target = r.present ? 1.0F : 0.0F;
-            r.anim += (target - r.anim) * 0.24F;
+            r.anim += ((r.present ? 1.0F : 0.0F) - r.anim) * 0.24F;
             if (!r.present && r.anim < 0.02F) {
                 it.remove();
             }
         }
     }
 
-    private void upsert(String id, String name, String keyText, Category cat) {
+    private void upsert(String id, String name, String keyText) {
         BindRow r = rows.get(id);
         if (r == null) {
-            r = new BindRow(id, name, keyText, cat);
-            rows.put(id, r);
+            rows.put(id, new BindRow(id, name, keyText));
         } else {
             r.name = name;
             r.keyText = keyText;
-            r.category = cat;
             r.present = true;
         }
     }
@@ -142,20 +121,21 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
             return;
         }
 
-        float listH = 0.0F;
-        float maxW = Fonts.SF_MEDIUM.getWidth("Binds", 8.5F) + 32.0F;
+        String title = "Hotkeys";
+        float headerW = HudStyle.PILL_PAD * 2.0F
+                + HudStyle.segmentWidth(IconUse.KEYBOARD, title, NAME);
 
+        float maxW = headerW;
+        int visible = 0;
         for (BindRow r : sorted) {
-            listH += ROW_H * r.anim;
+            if (r.anim > 0.03F) visible++;
             if (r.anim > 0.05F) {
-                float rowW = 11.0F + Fonts.SF_MEDIUM.getWidth(r.name, 7.5F)
-                        + 14.0F + Math.max(13.0F, Fonts.SF_MEDIUM.getWidth(r.keyText, 7.0F) + 7.5F);
-                maxW = Math.max(maxW, rowW);
+                maxW = Math.max(maxW, rowWidth(r));
             }
         }
 
-        float targetW = Math.max(110.0F, maxW + PAD_X * 2.0F);
-        float targetH = HEADER_H + 4.0F + Math.max(ROW_H, listH) + PAD_BOTTOM;
+        float targetW = maxW;
+        float targetH = HudStyle.PILL_H + ROW_GAP + visible * (HudStyle.PILL_H + ROW_GAP);
 
         if (animatedW < 0.0F) animatedW = targetW;
         if (animatedH < 0.0F) animatedH = targetH;
@@ -165,53 +145,42 @@ public final class HotkeysHud extends HudElement implements IMinecraft {
         this.width = animatedW;
         this.height = animatedH;
 
-        int accent = Theme.getAccentColor();
+        float cy = y;
+        HudStyle.drawPill(x, cy, headerW);
+        HudStyle.drawSegment(x + HudStyle.PILL_PAD, cy + HudStyle.PILL_H / 2.0F,
+                IconUse.KEYBOARD, title, NAME, HudStyle.TEXT_PRIMARY, HudStyle.TEXT_PRIMARY);
+        cy += HudStyle.PILL_H + ROW_GAP;
 
-        HudStyle.drawCard(x, y, width, height, RADIUS);
-        HudStyle.drawHeader(x, y, width, HEADER_H, "Binds", IconUse.KEYBOARD);
-
-        Render2D.pushScissor(x, y + HEADER_H + 1.0F, width, Math.max(0.0F, height - HEADER_H - 1.0F));
-
-        float cy = y + HEADER_H + 4.0F;
         for (BindRow r : sorted) {
             float a = r.anim;
             if (a <= 0.03F) continue;
-            float rh = ROW_H * a;
-            float midY = cy + rh / 2.0F;
+            float rowW = rowWidth(r);
             float slide = (1.0F - a) * -6.0F;
+            float pillX = x + slide;
+            float midY = cy + HudStyle.PILL_H / 2.0F;
+            float textY = midY - Fonts.SF_MEDIUM.textHeight(NAME) / 2.0F + 0.35F;
 
-            // Category icon
-            float cx = x + PAD_X + slide;
-            Fonts.drawIconFitted(catIcon(r.category), cx, midY, 8.0F,
-                    ColorUtil.withAlpha(accent, Math.round(215 * a)));
-            cx += Fonts.iconFittedWidth(catIcon(r.category), 8.0F) + 3.5F;
+            HudStyle.drawCard(pillX, cy, rowW, HudStyle.PILL_H, HudStyle.PILL_R, a);
 
-            // Keycap pill on the right
-            float keySize = 7.0F;
-            float kw = Math.max(13.0F, Fonts.SF_MEDIUM.getWidth(r.keyText, keySize) + 7.5F);
-            float kh = 10.0F;
-            float kx = x + width - PAD_X - kw;
-            float ky = midY - kh / 2.0F;
+            float keyW = Fonts.SF_MEDIUM.getWidth(r.keyText, KEY);
+            float divX = pillX + rowW - HudStyle.PILL_PAD - keyW - 6.0F;
+            String shown = ServerGui.ellipsize(r.name,
+                    Math.max(16.0F, divX - 6.0F - (pillX + HudStyle.PILL_PAD)), NAME);
 
-            Render2D.drawRoundedRectWithOutline(kx, ky, kw, kh, 3.2F,
-                    ColorUtil.withAlpha(accent, Math.round(30 * a)),
-                    0.65F,
-                    ColorUtil.withAlpha(accent, Math.round(95 * a)));
-            Fonts.drawCenteredString(Fonts.SF_MEDIUM, r.keyText, kx + kw / 2.0F,
-                    midY - Fonts.SF_MEDIUM.textHeight(keySize) / 2.0F + 0.35F,
-                    keySize, ColorUtil.multiplyAlpha(HudStyle.TEXT_PRIMARY, a));
+            Fonts.drawString(Fonts.SF_MEDIUM, shown, pillX + HudStyle.PILL_PAD, textY, NAME,
+                    ColorUtil.multiplyAlpha(HudStyle.TEXT_PRIMARY, a));
+            Render2D.drawRoundedRect(divX, midY - 4.0F, HudStyle.DIVIDER_W, 8.0F, 0.5F,
+                    ColorUtil.multiplyAlpha(HudStyle.DIVIDER, a));
+            Fonts.drawString(Fonts.SF_MEDIUM, r.keyText, divX + 6.0F,
+                    midY - Fonts.SF_MEDIUM.textHeight(KEY) / 2.0F + 0.35F, KEY,
+                    ColorUtil.multiplyAlpha(HudStyle.TEXT_SECONDARY, a));
 
-            // Module name
-            float nameSize = 7.5F;
-            float availNameW = Math.max(16.0F, kx - 5.0F - cx);
-            String shown = ServerGui.ellipsize(r.name, availNameW, nameSize);
-            Fonts.drawString(Fonts.SF_MEDIUM, shown, cx,
-                    midY - Fonts.SF_MEDIUM.textHeight(nameSize) / 2.0F + 0.35F,
-                    nameSize, ColorUtil.multiplyAlpha(HudStyle.TEXT_PRIMARY, a));
-
-            cy += rh;
+            cy += HudStyle.PILL_H + ROW_GAP;
         }
+    }
 
-        Render2D.popScissor();
+    private static float rowWidth(BindRow r) {
+        return HudStyle.PILL_PAD * 2.0F + Fonts.SF_MEDIUM.getWidth(r.name, NAME) + 6.0F
+                + HudStyle.DIVIDER_W + 6.0F + Fonts.SF_MEDIUM.getWidth(r.keyText, KEY);
     }
 }

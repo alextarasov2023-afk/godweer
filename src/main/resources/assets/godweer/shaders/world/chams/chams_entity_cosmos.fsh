@@ -9,8 +9,6 @@ in vec3 viewNormal;
 
 out vec4 fragColor;
 
-// Cosmos: the body is a window into deep space — nebula clouds, parallax
-// drift and hard star points. vertexColor.rgb = base colour, a = phase.
 float hash13(vec3 p) {
     p = fract(p * 0.1031);
     p += dot(p, p.yzx + 33.33);
@@ -28,6 +26,8 @@ float vnoise(vec3 p) {
     return mix(mix(a, b, f.y), mix(c, d, f.y), f.z);
 }
 
+// Cosmos: the body is a window into deep space — drifting nebula, a milky band
+// and hard star points. vertexColor.rgb = base colour, a = phase.
 void main() {
     float phase = vertexColor.a * 6.28318;
     vec3 base = vertexColor.rgb;
@@ -45,9 +45,14 @@ void main() {
             + vnoise(p * 4.7 + vec3(0.0, 0.0, drift * 1.3)) * 0.18;
     neb = smoothstep(0.28, 1.0, neb);
 
-    vec3 deep = mix(vec3(0.02, 0.02, 0.06), base * 0.5, neb);
-    vec3 glow = mix(vec3(0.35, 0.15, 0.75), base, 0.45) * neb;
-    vec3 col = deep + glow;
+    // Milky band: a second field stretched along one axis of the body.
+    float bandAxis = (p.y - p.x * 0.4) * 0.55;
+    float band = exp(-bandAxis * bandAxis) * neb;
+
+    vec3 deep = vec3(0.015, 0.015, 0.045);
+    vec3 violet = mix(vec3(0.30, 0.12, 0.70), base, 0.5);
+    vec3 cyan = mix(vec3(0.10, 0.45, 0.70), base, 0.35);
+    vec3 col = deep + violet * neb * 1.1 + cyan * band * 0.9;
 
     // Stars: high-frequency grid, only the top of the hash survives, and they
     // twinkle off the phase instead of popping.

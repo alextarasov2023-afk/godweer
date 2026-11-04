@@ -14,7 +14,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import pub.godweer.rotation.SmoothCamState;
 import pub.godweer.module.impl.misc.FreeCam;
-import pub.godweer.module.impl.render.FreeLook;
 
 /**
  * SmoothCamera — инерция всей камеры.
@@ -80,12 +79,10 @@ public abstract class SmoothCameraMixin {
             return;
         }
 
-        // FreeCam и FreeLook сами ведут камеру каждый кадр — наш догон превратил бы
-        // их управление в «ватное», поэтому отдаём им кадр целиком.
+        // FreeCam сам ведёт камеру каждый кадр — наш догон превратил бы
+        // его управление в «ватное», поэтому отдаём ему кадр целиком.
         FreeCam freeCam = FreeCam.INSTANCE;
-        FreeLook freeLook = FreeLook.INSTANCE;
-        boolean otherDriver = (freeCam != null && freeCam.isEnabled())
-                || (freeLook != null && freeLook.isActive());
+        boolean otherDriver = freeCam != null && freeCam.isEnabled();
 
         double targetX = this.position.x;
         double targetY = this.position.y;

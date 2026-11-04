@@ -36,7 +36,6 @@ public final class Localization {
         RU_DICT.put("Alt Manager", "Менеджер аккаунтов");
         RU_DICT.put("Settings", "Настройки");
         RU_DICT.put("Quit", "Выход");
-        RU_DICT.put("Wallpaper", "Обои");
         RU_DICT.put("Account Manager", "Менеджер Аккаунтов");
         RU_DICT.put("Enter nickname...", "Введите никнейм...");
         RU_DICT.put("Account list is empty", "Список аккаунтов пуст");
@@ -76,11 +75,6 @@ public final class Localization {
         RU_DICT.put("Crossbow", "Арбалет");
         RU_DICT.put("FOV", "Угол обзора (FOV)");
         RU_DICT.put("Search Range", "Дистанция поиска");
-        RU_DICT.put("Prediction", "Предикт");
-        RU_DICT.put("Trajectory", "Траектория");
-        RU_DICT.put("Line Thickness", "Толщина линии");
-        RU_DICT.put("Landing Marker", "Маркер приземления");
-        RU_DICT.put("Marker Size", "Размер маркера");
         RU_DICT.put("All", "Все");
 
         RU_DICT.put("Smart auction assistant", "Умный помощник для аукциона");
@@ -165,6 +159,8 @@ public final class Localization {
         RU_DICT.put("Movement Correction", "Коррекция движения");
         RU_DICT.put("Disengage", "Отводка");
         RU_DICT.put("Sprint Reset", "Сброс спринта");
+        RU_DICT.put("Cooldown", "Кулдаун");
+        RU_DICT.put("Mace Cooldown", "Кулдаун булавы");
         RU_DICT.put("Targets", "Таргеты");
         RU_DICT.put("Players", "Игроки");
         RU_DICT.put("Mobs", "Мобы");
@@ -192,8 +188,7 @@ public final class Localization {
         RU_DICT.put("Legit Sprint Reset", "Легит сброс спринта");
         RU_DICT.put("Focus", "Строгая");
         RU_DICT.put("Free", "Свободная");
-        RU_DICT.put("Min Stop Ticks", "Мин. тиков без спринта");
-        RU_DICT.put("Max Stop Ticks", "Макс. тиков без спринта");
+        RU_DICT.put("Stop After Ticks", "Отжать W через тиков");
         RU_DICT.put("Ground Cooldown %", "Заряд на земле");
         RU_DICT.put("Random Fall Cooldown (85-90%)", "Рандом заряда при падении (85-90%)");
         RU_DICT.put("Random Fall Distance", "Рандом атаки при падении");

@@ -3,7 +3,6 @@ package pub.godweer.module.impl.movement;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.gui.screens.Screen;
-import net.minecraft.network.protocol.game.ServerboundPlayerCommandPacket;
 import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.inventory.ContainerInput;
@@ -16,7 +15,7 @@ import pub.godweer.event.list.PlayerTickEvent;
 import pub.godweer.ui.clickgui.PanelRefractions;
 import pub.godweer.module.Category;
 import pub.godweer.module.Module;
-import pub.godweer.module.impl.combat.AutoTotem;
+import pub.godweer.module.impl.player.AutoSwap;
 import pub.godweer.module.settings.impl.BindSetting;
 import pub.godweer.module.settings.impl.CheckBox;
 import pub.godweer.module.settings.impl.ModeSetting;
@@ -28,6 +27,11 @@ import pub.godweer.util.player.MoveBlockUtility;
  * Хелпер для элитр.
  * Бинды: использование фейерверка и свап элитра/нагрудника.
  * Режимы Packet/Normal. Галочка «Брать из инвентаря» — легит-путь через невидимый инвентарь.
+ *
+ * Любое действие (юз фейерверка из руки/хотбара/инвентаря, свап брони) идёт
+ * через один автомат со сбросом спринта, как в AutoSwap/ServerHelper: спринт
+ * гасится setSprinting(false) за тик до действия, STOP_SPRINTING уходит сам из
+ * LocalPlayer.sendChanges(), ручных START/STOP пакетов нет.
  */
 public final class ElytraHelper extends Module {
 
@@ -44,10 +48,13 @@ public final class ElytraHelper extends Module {
 
     private enum TaskType {
         NONE,
-        FIREWORK_INV,   // невидимый инвентарь: взять фейерверк, юзануть, вернуть
-        ELYTRA_INV,     // невидимый инвентарь: надеть элитру/нагрудник
-        ELYTRA_PACKET,  // пакетный свап брони (в т.ч. из хотбара)
-        ELYTRA_HOTBAR   // хотбар: переключиться, надеть юзом, вернуть слот
+        FIREWORK_DIRECT, // фейерверк уже в руке (главной или второй) — просто юз
+        FIREWORK_HOTBAR, // хотбар: переключиться, юзануть, вернуть слот
+        FIREWORK_INV,    // невидимый инвентарь: взять фейерверк, юзануть, вернуть
+        FIREWORK_PACKET, // пакетный свап из инвентаря: взять, юзануть, вернуть
+        ELYTRA_INV,      // невидимый инвентарь: надеть элитру/нагрудник
+        ELYTRA_PACKET,   // пакетный свап брони (в т.ч. из хотбара)
+        ELYTRA_HOTBAR    // хотбар: переключиться, надеть юзом, вернуть слот
     }
 
     private enum State {
@@ -62,7 +69,6 @@ public final class ElytraHelper extends Module {
     private boolean fireworkQueued = false;
     private boolean elytraQueued = false;
     private int cooldownTicks = 0;
-    private boolean wasSprinting = false;
 
     public ElytraHelper() {
         super("ElytraHelper", "Быстрый свап элитры и запуск фейерверков", Category.MOVEMENT);
@@ -79,7 +85,6 @@ public final class ElytraHelper extends Module {
         fireworkQueued = false;
         elytraQueued = false;
         cooldownTicks = 0;
-        wasSprinting = false;
         MoveBlockUtility.unblock(this);
         // если выключили посреди «призрачного» инвентаря — закрываем его
         if (mc.gui != null && mc.gui.screen() instanceof GhostInventoryScreen) {
@@ -89,7 +94,7 @@ public final class ElytraHelper extends Module {
 
     @EventTarget
     public void onKeyboardInput(KeyboardInputEvent event) {
-        if (AutoTotem.isSwapping()) return;
+        if (AutoSwap.isSwapping()) return;
         if (event.getAction() != InputConstants.PRESS) return;
 
         if (fireworkKey.matches(event.getKey())) {
@@ -101,7 +106,7 @@ public final class ElytraHelper extends Module {
 
     @EventTarget
     public void onMouseInput(MouseInputEvent event) {
-        if (AutoTotem.isSwapping()) return;
+        if (AutoSwap.isSwapping()) return;
         if (event.getAction() != InputConstants.PRESS) return;
 
         if (fireworkKey.matchesMouse(event.getButton())) {
@@ -116,14 +121,14 @@ public final class ElytraHelper extends Module {
     }
 
     private boolean queueFirework() {
-        if (AutoTotem.isSwapping() || !inGame() || player() == null || mc.gameMode == null) return false;
+        if (AutoSwap.isSwapping() || !inGame() || player() == null || mc.gameMode == null) return false;
         if (mc.gui.screen() != null || PanelRefractions.isOpen() || state != State.IDLE) return false;
         fireworkQueued = true;
         return true;
     }
 
     private boolean queueElytra() {
-        if (AutoTotem.isSwapping() || !inGame() || player() == null || mc.gameMode == null) return false;
+        if (AutoSwap.isSwapping() || !inGame() || player() == null || mc.gameMode == null) return false;
         if (mc.gui.screen() != null || PanelRefractions.isOpen() || state != State.IDLE) return false;
         elytraQueued = true;
         return true;
@@ -137,7 +142,7 @@ public final class ElytraHelper extends Module {
             return;
         }
 
-        if (AutoTotem.isSwapping()) {
+        if (AutoSwap.isSwapping()) {
             reset();
             return;
         }
@@ -155,16 +160,18 @@ public final class ElytraHelper extends Module {
         }
 
         switch (state) {
+            // Тик перед действием гасим спринт, как в ServerHelper/AutoSwap.
+            // Свой STOP_SPRINTING не шлём: ванильный LocalPlayer.sendChanges()
+            // отправит его сам и заодно сверит локальный флаг с серверным.
             case STOP_SPRINT -> {
                 if (player.isSprinting()) {
                     player.setSprinting(false);
-                    wasSprinting = true;
                 }
                 if (player.onGround()) {
                     player.setDeltaMovement(0.0, player.getDeltaMovement().y, 0.0);
                 }
-                MoveBlockUtility.freeze(this, 4);
-                MoveBlockUtility.blockSprint(this, 5);
+                MoveBlockUtility.freeze(this, 6);
+                MoveBlockUtility.blockSprint(this, 8);
                 state = State.EXECUTE;
             }
 
@@ -176,7 +183,16 @@ public final class ElytraHelper extends Module {
                 MoveBlockUtility.freeze(this, 3);
 
                 switch (currentTask) {
+                    case FIREWORK_DIRECT -> {
+                        if (player.getMainHandItem().is(Items.FIREWORK_ROCKET)) {
+                            InventoryUtil.useDirect(player);
+                        } else if (player.getOffhandItem().is(Items.FIREWORK_ROCKET)) {
+                            InventoryUtil.useDirect(player, InteractionHand.OFF_HAND);
+                        }
+                    }
+                    case FIREWORK_HOTBAR -> executeFireworkFromHotbar(player);
                     case FIREWORK_INV -> executeFireworkFromInventory(player);
+                    case FIREWORK_PACKET -> executePacketFirework(player);
                     case ELYTRA_INV -> executeElytraFromInventory(player);
                     case ELYTRA_PACKET -> {
                         int targetSlot = findSwapTargetSlot(player);
@@ -205,10 +221,10 @@ public final class ElytraHelper extends Module {
                     if (mc.gui.screen() instanceof GhostInventoryScreen) {
                         mc.gui.setScreen(null);
                     }
-                    if (wasSprinting && mc.getConnection() != null) {
-                        mc.getConnection().send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.START_SPRINTING));
-                    }
-                    wasSprinting = false;
+                    // START_SPRINTING не шлём руками: спринт вернётся сам из
+                    // ванильного ввода, и sendChanges() отправит START со
+                    // согласованным клиентским флагом (ручной пакет оставляет
+                    // wasSprinting=0, сервер остаётся «бегущим» навсегда).
                     state = State.IDLE;
                     MoveBlockUtility.unblock(this);
                 }
@@ -221,39 +237,31 @@ public final class ElytraHelper extends Module {
 
     // ===================== ФЕЙЕРВЕРК =====================
 
+    /** Все пути юза идут через автомат: только выбираем задачу, действие — в EXECUTE. */
     private void handleFirework(LocalPlayer player) {
-        // уже в руке — просто юзаем
-        if (player.getMainHandItem().is(Items.FIREWORK_ROCKET)) {
-            InventoryUtil.useDirect(player);
-            return;
-        }
-        if (player.getOffhandItem().is(Items.FIREWORK_ROCKET)) {
-            InventoryUtil.useDirect(player, InteractionHand.OFF_HAND);
-            return;
-        }
-
-        // в хотбаре — переключаемся, юзаем, возвращаем предмет который держали
-        int hotbarSlot = findFireworkHotbarSlot(player);
-        if (hotbarSlot != -1) {
-            int previousSlot = player.getInventory().getSelectedSlot();
-            selectHotbarSlot(player, hotbarSlot);
-            InventoryUtil.useDirect(player);
-            selectHotbarSlot(player, previousSlot);
-            return;
-        }
-
-        // только в инвентаре
-        int invSlot = findFireworkInventorySlot(player);
-        if (invSlot == -1) return;
-
-        if (fireworkMode.is("Normal") && takeFromInventory.getValue()) {
-            // легит: заходим в невидимый инвентарь, берём в держимый слот, юзаем, возвращаем, выходим
-            currentTask = TaskType.FIREWORK_INV;
-            state = State.STOP_SPRINT;
+        if (player.getMainHandItem().is(Items.FIREWORK_ROCKET)
+                || player.getOffhandItem().is(Items.FIREWORK_ROCKET)) {
+            currentTask = TaskType.FIREWORK_DIRECT;
+        } else if (findFireworkHotbarSlot(player) != -1) {
+            currentTask = TaskType.FIREWORK_HOTBAR;
+        } else if (findFireworkInventorySlot(player) != -1) {
+            currentTask = fireworkMode.is("Normal") && takeFromInventory.getValue()
+                    ? TaskType.FIREWORK_INV
+                    : TaskType.FIREWORK_PACKET;
         } else {
-            // пакетный свап без открытия инвентаря
-            performPacketFirework(player, invSlot);
+            return;
         }
+        state = State.STOP_SPRINT;
+    }
+
+    private void executeFireworkFromHotbar(LocalPlayer player) {
+        int hotbarSlot = findFireworkHotbarSlot(player);
+        if (hotbarSlot == -1) return;
+
+        int previousSlot = player.getInventory().getSelectedSlot();
+        selectHotbarSlot(player, hotbarSlot);
+        InventoryUtil.useDirect(player);
+        selectHotbarSlot(player, previousSlot);
     }
 
     private void executeFireworkFromInventory(LocalPlayer player) {
@@ -285,19 +293,15 @@ public final class ElytraHelper extends Module {
         }
     }
 
-    private void performPacketFirework(LocalPlayer player, int invSlot) {
-        if (mc.getConnection() != null) {
-            mc.getConnection().send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.STOP_SPRINTING));
-        }
+    /** Пакетный свап из инвентаря: взять в держимый слот, юзануть, вернуть. Ручных sprint-пакетов нет — сброс сделан автоматом до этого тика. */
+    private void executePacketFirework(LocalPlayer player) {
+        int invSlot = findFireworkInventorySlot(player);
+        if (invSlot == -1) return;
 
         int selectedHotbar = player.getInventory().getSelectedSlot();
         mc.gameMode.handleContainerInput(player.inventoryMenu.containerId, invSlot, selectedHotbar, ContainerInput.SWAP, player);
         InventoryUtil.useDirect(player);
         mc.gameMode.handleContainerInput(player.inventoryMenu.containerId, invSlot, selectedHotbar, ContainerInput.SWAP, player);
-
-        if (mc.getConnection() != null) {
-            mc.getConnection().send(new ServerboundPlayerCommandPacket(player, ServerboundPlayerCommandPacket.Action.START_SPRINTING));
-        }
     }
 
 

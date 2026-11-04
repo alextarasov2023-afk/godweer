@@ -4,6 +4,7 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.protocol.game.ClientboundExplodePacket;
 import net.minecraft.network.protocol.game.ClientboundPlayerPositionPacket;
 import net.minecraft.network.protocol.game.ClientboundSetEntityMotionPacket;
+import net.minecraft.network.protocol.game.ServerboundAcceptTeleportationPacket;
 import net.minecraft.network.protocol.game.ServerboundMovePlayerPacket;
 import net.minecraft.world.entity.PositionMoveRotation;
 import net.minecraft.world.inventory.InventoryMenu;
@@ -21,6 +22,7 @@ import pub.godweer.event.list.Render3DEvent;
 import pub.godweer.module.Category;
 import pub.godweer.module.Module;
 import pub.godweer.module.settings.impl.CheckBox;
+import pub.godweer.module.settings.impl.ModeSetting;
 import pub.godweer.util.network.NetworkUtils;
 import pub.godweer.util.player.InventorySwaps;
 import pub.godweer.util.render.Render3D;
@@ -45,9 +47,12 @@ import java.util.List;
  * Полное молчание — отдельная галка «Не пересылать пакеты» для серверов, где
  * нужен именно обрыв движения.
  *
- * Фейковый TeleportConfirm(-1337) из туториала не отправляется: невалидный id
- * телепорта — прямой флаг BadPackets, а сервер всё равно ждёт подтверждения
- * настоящего телепорта от ванильного обработчика.
+ * Режимы:
+ * - «Обычный» — якорь снимается сразу при включении модуля;
+ * - «LonyGrief» — ждёт начала падения и замирает в воздухе (как в оригинале).
+ *
+ * Подтверждение телепорта TeleportConfirm(-1337) из оригинала пульсирует каждые
+ * 800 мс на якоре — молча, поверх обычных move-пакетов.
  */
 public class AirStuck extends Module {
 
@@ -65,6 +70,13 @@ public class AirStuck extends Module {
             Items.GOLDEN_CHESTPLATE,
             Items.LEATHER_CHESTPLATE);
 
+    private static final String MODE_NORMAL = "Обычный";
+    private static final String MODE_LONY_GRIEF = "LonyGrief";
+
+    /** Интервал пульса TeleportConfirm из оригинала, мс. */
+    private static final long CONFIRM_INTERVAL_MS = 800L;
+
+    private final ModeSetting mode = mode("Режим", MODE_LONY_GRIEF, MODE_NORMAL, MODE_LONY_GRIEF);
     private final CheckBox allowRotation = checkbox("Крутить головой", false);
     private final CheckBox allowAttack = checkbox("Бить", false);
     private final CheckBox noKnockback = checkbox("Без отдачи", true);
@@ -78,6 +90,7 @@ public class AirStuck extends Module {
     private double anchorZ;
     private float anchorYaw;
     private float anchorPitch;
+    private long lastConfirm;
 
     public AirStuck() {
         super("AirStuck", "Замораживает тебя в воздухе при падении", Category.PLAYER);
@@ -110,11 +123,18 @@ public class AirStuck extends Module {
             return;
         }
 
-        // Модуль просыпается только на падении: стоя на земле или летя на
-        // элитрах, игрок не тронут.
+        // Модуль просыпается: «LonyGrief» — только на падении, «Обычный» — сразу.
         if (!active) {
-            if (!isFalling(player)) return;
+            if (mode.is(MODE_LONY_GRIEF) && !isFalling(player)) return;
             freeze(player);
+        }
+
+        // Пульс подтверждения телепорта с якорными координатами — как в оригинале.
+        long now = System.currentTimeMillis();
+        if (now - lastConfirm >= CONFIRM_INTERVAL_MS) {
+            lastConfirm = now;
+            NetworkUtils.sendSilentPacket(new ServerboundAcceptTeleportationPacket(
+                    -1337, anchorX, anchorY, anchorZ, anchorYaw, anchorPitch));
         }
 
         // Позицию не обновляем — возвращаем в якорь; ввод и физику гасим.
@@ -150,6 +170,7 @@ public class AirStuck extends Module {
         anchorYaw = player.getYRot();
         anchorPitch = player.getXRot();
         active = true;
+        lastConfirm = 0L;
 
         player.setDeltaMovement(0.0D, 0.0D, 0.0D);
         player.fallDistance = 0.0F;

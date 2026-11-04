@@ -25,11 +25,12 @@ public final class Binds {
 
         for (Module module : modules()) {
             BindSetting bind = module.getBind();
-            if (bind != ignore && bind != null && bind.contains(code)) {
+            if (bind != ignore && bind != null && bind.isExclusive() && bind.contains(code)) {
                 return module.getName();
             }
             for (Setting<?> setting : module.getSettings()) {
-                if (setting instanceof BindSetting other && other != ignore && other.contains(code)) {
+                if (setting instanceof BindSetting other && other != ignore
+                        && other.isExclusive() && other.contains(code)) {
                     return module.getName() + " → " + other.getName();
                 }
             }
@@ -37,7 +38,11 @@ public final class Binds {
         return null;
     }
 
-    /** Навешивает клавишу, сняв её с прежнего владельца. Пустой код — молча false. */
+    /**
+     * Навешивает клавишу, сняв её с прежнего владельца. Именно навешивает одну:
+     * повторная запись из UI заменяет прежнюю клавишу, а не копит их — иначе
+     * бинд «не ставится», пока в нём висят старые коды. Пустой код — молча false.
+     */
     public static boolean assign(BindSetting target, int code) {
         if (target == null || !BindSetting.isValidKey(code)) {
             return false;
@@ -47,16 +52,21 @@ public final class Binds {
         if (previous != null) {
             Notifications.push("Бинд " + KeyUtil.getKeyName(code) + " забран у " + previous);
         }
-        return target.addCode(code);
+        target.setSingle(code);
+        return target.isBound();
     }
 
-    /** Убирает код у всех, кроме keep. Возвращает метку того, у кого забрали. */
+    /**
+     * Убирает код у всех, кроме keep. Общие бинды (ServerHelper) не трогаем:
+     * именно на них несколько предметов делят одну клавишу. Возвращает метку
+     * того, у кого забрали.
+     */
     private static String detach(int code, BindSetting keep) {
         String previous = null;
 
         for (Module module : modules()) {
             BindSetting bind = module.getBind();
-            if (bind != keep && bind != null) {
+            if (bind != keep && bind != null && bind.isExclusive()) {
                 int index = bind.getValue().indexOf(code);
                 if (index != -1) {
                     bind.removeAt(index);
@@ -64,7 +74,7 @@ public final class Binds {
                 }
             }
             for (Setting<?> setting : module.getSettings()) {
-                if (setting instanceof BindSetting other && other != keep) {
+                if (setting instanceof BindSetting other && other != keep && other.isExclusive()) {
                     int index = other.getValue().indexOf(code);
                     if (index != -1) {
                         other.removeAt(index);

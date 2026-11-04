@@ -133,9 +133,8 @@ public final class Notifications implements IMinecraft {
 
                 float slotX = x + 6.0F;
                 float slotY = y + (H - SLOT) / 2.0F;
-                Render2D.drawRoundedRectWithOutline(slotX, slotY, SLOT, SLOT, 4.0F,
-                        ColorUtil.withAlpha(t.accent, Math.round(34 * a)),
-                        0.65F, ColorUtil.withAlpha(t.accent, Math.round(95 * a)));
+                Render2D.drawRoundedRect(slotX, slotY, SLOT, SLOT, 4.0F,
+                        ColorUtil.multiplyAlpha(HudStyle.PILL_BG, a));
 
                 Fonts.drawIconFittedCentered(t.icon, slotX + SLOT / 2.0F, slotY + SLOT / 2.0F,
                         9.0F, ColorUtil.multiplyAlpha(t.accent, a));

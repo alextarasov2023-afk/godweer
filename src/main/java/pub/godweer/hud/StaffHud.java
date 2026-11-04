@@ -7,8 +7,12 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Scoreboard;
 import pub.godweer.IMinecraft;
+import pub.godweer.util.RenderExtend;
+import pub.godweer.util.ServerTags;
 import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
 import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.Render2DUtil;
 import pub.godweer.util.render.font.Fonts;
 import pub.godweer.util.render.font.IconUse;
 import pub.godweer.event.list.Render2DEvent;
@@ -27,27 +31,27 @@ import java.util.regex.Pattern;
 
 /**
  * Staff list HUD:
- * - Multi-source staff detection:
- *   1) Online tab-list players (prefix/suffix/tab display name)
- *   2) Scoreboard teams (detects vanished staff whose nick remains in a staff team while hidden from tab)
- *   3) Session cache of known staff who went into vanish mid-session
- * - Rich status state: ACTIVE (online & playing), NEAR (in loaded chunk range), SPEC (spectator), VANISH (hidden from tab)
- * - Smooth enter & exit row animations, role badge, player head, and glowing status indicator dot.
+ * - Staff detection by tag only: the tab-list tag (or scoreboard team prefix)
+ *   must contain one of STAFF_KEYWORDS; nicknames are never matched.
+ * - The server tag itself is shown (vanilla font and its own colors), same as NameTags.
+ * - Status: ACTIVE (online), NEAR (in loaded chunk range), SPEC (spectator), VANISH (hidden from tab).
+ * - Spectator/playing badge instead of a status dot, smooth enter & exit row animations.
  */
 public final class StaffHud extends HudElement implements IMinecraft {
 
     private static final float PAD_X = 8.0F;
-    private static final float PAD_BOTTOM = 5.0F;
-    private static final float HEADER_H = 19.0F;
-    private static final float ROW_H = 15.0F;
-    private static final float HEAD = 10.5F;
-    private static final float RADIUS = 8.0F;
+    private static final float PAD_BOTTOM = 4.0F;
+    private static final float HEADER_H = 14.0F;
+    private static final float ROW_H = 14.0F;
+    private static final float HEAD = 10.0F;
+    private static final float RADIUS = 7.0F;
+    private static final float TAG_SCALE = 0.72F;
 
     private static final Pattern VALID_NICK = Pattern.compile("^[a-zA-Z0-9_]{3,16}$");
 
     private enum Status {
         VANISH("V", ColorUtil.rgba(255, 82, 88, 255), 0),
-        SPEC("GM3", ColorUtil.rgba(255, 196, 68, 255), 1),
+        SPEC("", ColorUtil.rgba(255, 196, 68, 255), 1),
         NEAR("NEAR", ColorUtil.rgba(110, 230, 145, 255), 2),
         ACTIVE("", ColorUtil.rgba(105, 225, 135, 255), 3);
 
@@ -62,47 +66,27 @@ public final class StaffHud extends HudElement implements IMinecraft {
         }
     }
 
-    private record RoleDef(String tag, int color, int priority, String... keywords) {
-    }
-
-    private static final List<RoleDef> ROLE_DEFS = List.of(
-            new RoleDef("OWNER", ColorUtil.rgba(255, 78, 88, 255), 0,
-                    "owner", "гл.адм", "главный", "создатель", "founder", "владелец"),
-            new RoleDef("ADMIN", ColorUtil.rgba(255, 88, 92, 255), 1,
-                    "admin", "админ", "администратор", "tech", "тех.адм"),
-            new RoleDef("DEV", ColorUtil.rgba(115, 175, 255, 255), 2,
-                    "dev", "разраб", "developer", "coder", "кодер"),
-            new RoleDef("CURATOR", ColorUtil.rgba(192, 125, 255, 255), 3,
-                    "curator", "куратор", "st.moder", "ст.модер", "sr.moder", "srmoder", "гл.модер"),
-            new RoleDef("MODER", ColorUtil.rgba(98, 168, 255, 255), 4,
-                    "moder", "модер", "мл.модер", "jrmoder", "warden", "staff"),
-            new RoleDef("HELPER", ColorUtil.rgba(98, 226, 142, 255), 5,
-                    "helper", "хелпер", "хэлпер", "ml.helper", "мл.хелпер", "intern", "стажер", "стажёр"),
-            new RoleDef("DESIGN", ColorUtil.rgba(138, 146, 255, 255), 6,
-                    "design", "дизайн", "builder", "билдер", "строитель"),
-            new RoleDef("MEDIA", ColorUtil.rgba(255, 118, 195, 255), 7,
-                    "youtube", "yt", "media", "медиа", "twitch", "tiktok"),
-            new RoleDef("TITAN", ColorUtil.rgba(232, 182, 96, 255), 8,
-                    "titan", "титан", "d.moder", "д.модер", "d.helper", "д.хелпер", "overlord", "dragon", "imperator", "magister")
+    private static final List<String> STAFF_KEYWORDS = List.of(
+            "модер", "moder", "сотрудник", "куратор", "curator",
+            "админ", "admin", "helper", "хелпер", "овнер", "owner",
+            "стажер", "стажёр"
     );
 
     private static final class StaffRow {
         final String key;
         String name;
-        String tag;
-        int tagColor;
-        int rolePriority;
+        ServerTags.Tag tag;
+        Boolean spectator;
         Status status;
         Identifier skin;
         float anim;
         boolean present;
 
-        StaffRow(String key, String name, String tag, int tagColor, int rolePriority, Status status, Identifier skin) {
+        StaffRow(String key, String name, ServerTags.Tag tag, Boolean spectator, Status status, Identifier skin) {
             this.key = key;
             this.name = name;
             this.tag = tag;
-            this.tagColor = tagColor;
-            this.rolePriority = rolePriority;
+            this.spectator = spectator;
             this.status = status;
             this.skin = skin;
             this.anim = 0.0F;
@@ -111,7 +95,7 @@ public final class StaffHud extends HudElement implements IMinecraft {
     }
 
     private final Map<String, StaffRow> rows = new LinkedHashMap<>();
-    private final Map<String, RoleDef> sessionKnownStaff = new LinkedHashMap<>();
+    private final Map<String, ServerTags.Tag> sessionKnownStaff = new LinkedHashMap<>();
     private String lastWorldKey = "";
     private float animatedW = -1.0F;
     private float animatedH = -1.0F;
@@ -120,17 +104,13 @@ public final class StaffHud extends HudElement implements IMinecraft {
         super("staff", "Staff", 495.0F, 68.0F, 152.0F, 74.0F);
     }
 
-    private static RoleDef detectRole(String raw) {
-        if (raw == null || raw.isEmpty()) return null;
-        String clean = ServerGui.stripCodes(raw).toLowerCase(Locale.ROOT);
-        for (RoleDef def : ROLE_DEFS) {
-            for (String kw : def.keywords) {
-                if (containsWordOrPrefix(clean, kw)) {
-                    return def;
-                }
-            }
+    private static boolean isStaffTag(ServerTags.Tag tag) {
+        if (tag == null) return false;
+        String clean = ServerTags.clean(tag.name()).toLowerCase(Locale.ROOT);
+        for (String kw : STAFF_KEYWORDS) {
+            if (containsWordOrPrefix(clean, kw)) return true;
         }
-        return null;
+        return false;
     }
 
     private static boolean containsWordOrPrefix(String clean, String kw) {
@@ -143,46 +123,27 @@ public final class StaffHud extends HudElement implements IMinecraft {
         return false;
     }
 
-    private static RoleDef detectFromTeam(PlayerTeam team) {
-        if (team == null) return null;
-        try {
-            RoleDef hit = detectRole(team.getPlayerPrefix().getString());
-            if (hit != null) return hit;
-            hit = detectRole(team.getDisplayName().getString());
-            if (hit != null) return hit;
-            hit = detectRole(team.getName());
-            if (hit != null) return hit;
-            hit = detectRole(team.getPlayerSuffix().getString());
-            if (hit != null) return hit;
-        } catch (Exception ignored) {
-        }
-        return null;
+    private static ServerTags.Tag teamTag(PlayerTeam team) {
+        ServerTags.Tag tag = ServerTags.team(team);
+        return isStaffTag(tag) ? tag : null;
     }
 
-    private static RoleDef detectFromPlayerInfo(PlayerInfo info, String name) {
+    /** Тег staff-игрока: ключевые слова ищем только в теге, ник не участвует. */
+    private static ServerTags.Tag staffTag(PlayerInfo info, String name) {
         if (info == null) return null;
         try {
-            PlayerTeam team = info.getTeam();
-            RoleDef hit = detectFromTeam(team);
-            if (hit != null) return hit;
+            ServerTags.Tag tag = ServerTags.tab(info, name);
+            if (isStaffTag(tag)) return tag;
+        } catch (Exception ignored) {
+        }
+        try {
+            ServerTags.Tag tag = teamTag(info.getTeam());
+            if (tag != null) return tag;
         } catch (Exception ignored) {
         }
         try {
             if (mc.level != null && name != null) {
-                PlayerTeam team = mc.level.getScoreboard().getPlayersTeam(name);
-                RoleDef hit = detectFromTeam(team);
-                if (hit != null) return hit;
-            }
-        } catch (Exception ignored) {
-        }
-        try {
-            var tab = info.getTabListDisplayName();
-            if (tab != null) {
-                String full = ServerGui.stripCodes(tab.getString());
-                int nickIdx = name != null ? full.toLowerCase(Locale.ROOT).indexOf(name.toLowerCase(Locale.ROOT)) : -1;
-                String prefixPart = nickIdx > 0 ? full.substring(0, nickIdx) : full;
-                RoleDef hit = detectRole(prefixPart);
-                if (hit != null) return hit;
+                return teamTag(mc.level.getScoreboard().getPlayersTeam(name));
             }
         } catch (Exception ignored) {
         }
@@ -264,6 +225,7 @@ public final class StaffHud extends HudElement implements IMinecraft {
     }
 
     private void syncStaffList() {
+        if (!beginSyncFrame()) return;
         String worldKey = mc.level != null ? String.valueOf(System.identityHashCode(mc.level)) : "";
         if (!worldKey.equals(lastWorldKey)) {
             lastWorldKey = worldKey;
@@ -295,19 +257,20 @@ public final class StaffHud extends HudElement implements IMinecraft {
                     onlineLower.add(low);
                     if (name.equalsIgnoreCase(self)) continue;
 
-                    RoleDef role = detectFromPlayerInfo(info, name);
-                    if (role == null) continue;
+                    ServerTags.Tag tag = staffTag(info, name);
+                    if (tag == null) continue;
 
-                    sessionKnownStaff.put(low, role);
+                    boolean spec = isSpectatorMode(info, name);
                     Status st;
-                    if (isSpectatorMode(info, name)) {
+                    if (spec) {
                         st = Status.SPEC;
                     } else if (isNearInWorld(name, info)) {
                         st = Status.NEAR;
                     } else {
                         st = Status.ACTIVE;
                     }
-                    upsertRow(low, name, role.tag, role.color, role.priority, st, resolveSkin(info, name));
+                    sessionKnownStaff.put(low, tag);
+                    upsertRow(low, name, tag, spec, st, resolveSkin(info, name));
                     populatedReal = true;
                 }
 
@@ -315,8 +278,8 @@ public final class StaffHud extends HudElement implements IMinecraft {
                 if (mc.level != null) {
                     Scoreboard board = mc.level.getScoreboard();
                     for (PlayerTeam team : board.getPlayerTeams()) {
-                        RoleDef teamRole = detectFromTeam(team);
-                        if (teamRole == null) continue;
+                        ServerTags.Tag vanishedTag = teamTag(team);
+                        if (vanishedTag == null) continue;
                         for (String member : team.getPlayers()) {
                             if (member == null || member.equalsIgnoreCase(self)) continue;
                             String cleanMember = ServerGui.stripCodes(member).trim();
@@ -324,8 +287,8 @@ public final class StaffHud extends HudElement implements IMinecraft {
                             String low = cleanMember.toLowerCase(Locale.ROOT);
                             if (onlineLower.contains(low)) continue;
 
-                            sessionKnownStaff.put(low, teamRole);
-                            upsertRow(low, cleanMember, teamRole.tag, teamRole.color, teamRole.priority,
+                            sessionKnownStaff.put(low, vanishedTag);
+                            upsertRow(low, cleanMember, vanishedTag, null,
                                     Status.VANISH, resolveSkin(null, cleanMember));
                             populatedReal = true;
                         }
@@ -337,9 +300,12 @@ public final class StaffHud extends HudElement implements IMinecraft {
 
         // Demo preview when chat edit mode is open and no staff are around
         if (!populatedReal && HudManager.editMode()) {
-            upsertRow("opuser", "opUser", "TITAN", ColorUtil.rgba(232, 182, 96, 255), 8, Status.SPEC, null);
-            upsertRow("s3ko", "S3ko", "ADMIN", ColorUtil.rgba(255, 88, 92, 255), 1, Status.VANISH, null);
-            upsertRow("devax", "devax", "DESIGN", ColorUtil.rgba(138, 146, 255, 255), 6, Status.ACTIVE, null);
+            upsertRow("opuser", "opUser", sampleTag("МОДЕР", ColorUtil.rgba(98, 168, 255, 255)),
+                    true, Status.SPEC, null);
+            upsertRow("s3ko", "S3ko", sampleTag("АДМИН", ColorUtil.rgba(255, 88, 92, 255)),
+                    null, Status.VANISH, null);
+            upsertRow("devax", "devax", sampleTag("ХЕЛПЕР", ColorUtil.rgba(98, 226, 142, 255)),
+                    false, Status.ACTIVE, null);
         }
 
         // Animate rows & prune exited ones
@@ -354,17 +320,20 @@ public final class StaffHud extends HudElement implements IMinecraft {
         }
     }
 
-    private void upsertRow(String key, String name, String tag, int tagColor, int priority, Status status, Identifier skin) {
+    private static ServerTags.Tag sampleTag(String text, int color) {
+        return new ServerTags.Tag(ServerTags.clean(text), color, List.of(new ServerTags.TagRun(text, color)));
+    }
+
+    private void upsertRow(String key, String name, ServerTags.Tag tag, Boolean spectator, Status status, Identifier skin) {
         StaffRow row = rows.get(key);
         if (row == null) {
             if (rows.size() >= 14) return;
-            row = new StaffRow(key, name, tag, tagColor, priority, status, skin);
+            row = new StaffRow(key, name, tag, spectator, status, skin);
             rows.put(key, row);
         } else {
             row.name = name;
             row.tag = tag;
-            row.tagColor = tagColor;
-            row.rolePriority = priority;
+            row.spectator = spectator;
             row.status = status;
             if (skin != null) row.skin = skin;
             row.present = true;
@@ -390,11 +359,10 @@ public final class StaffHud extends HudElement implements IMinecraft {
         List<StaffRow> sorted = new ArrayList<>(rows.values());
         sorted.sort(Comparator
                 .comparingInt((StaffRow r) -> r.status.sortOrder)
-                .thenComparingInt(r -> r.rolePriority)
                 .thenComparing(r -> r.name.toLowerCase(Locale.ROOT)));
 
         float listH = 0.0F;
-        float maxRowW = Fonts.SF_MEDIUM.getWidth("Staff", 8.5F) + 32.0F;
+        float maxRowW = Fonts.SF_MEDIUM.getWidth("Staff", 7.0F) + 26.0F;
 
         for (StaffRow r : sorted) {
             listH += ROW_H * r.anim;
@@ -409,8 +377,8 @@ public final class StaffHud extends HudElement implements IMinecraft {
             return;
         }
 
-        float targetW = Math.max(122.0F, maxRowW + PAD_X * 2.0F);
-        float targetH = HEADER_H + 4.0F + Math.max(ROW_H, listH) + PAD_BOTTOM;
+        float targetW = Math.max(118.0F, maxRowW + PAD_X * 2.0F);
+        float targetH = HEADER_H + 2.0F + Math.max(ROW_H, listH) + PAD_BOTTOM;
 
         if (animatedW < 0.0F) animatedW = targetW;
         if (animatedH < 0.0F) animatedH = targetH;
@@ -421,11 +389,11 @@ public final class StaffHud extends HudElement implements IMinecraft {
         this.height = animatedH;
 
         HudStyle.drawCard(x, y, width, height, RADIUS);
-        HudStyle.drawHeader(x, y, width, HEADER_H, "Staff", IconUse.STAFF);
+        HudStyle.drawLabel(x, y, width, HEADER_H, "Staff", IconUse.STAFF);
 
         Render2D.pushScissor(x, y + HEADER_H + 1.0F, width, Math.max(0.0F, height - HEADER_H - 1.0F));
 
-        float cy = y + HEADER_H + 4.0F;
+        float cy = y + HEADER_H + 2.0F;
         for (StaffRow r : sorted) {
             float a = r.anim;
             if (a <= 0.03F) continue;
@@ -442,42 +410,35 @@ public final class StaffHud extends HudElement implements IMinecraft {
                 cx += HEAD + 4.5F;
             }
 
-            // Role badge (e.g. TITAN / ADMIN / DESIGN)
-            float tagSize = 6.5F;
-            float tagTextW = Fonts.SF_MEDIUM.getWidth(r.tag, tagSize);
-            float tagPadX = 4.0F;
-            float tagW = tagTextW + tagPadX * 2.0F;
-            float tagH = 9.5F;
-            float tagY = midY - tagH / 2.0F;
+            // Server tag exactly as it appears in the server tab list
+            if (r.tag != null) {
+                cx = drawRowTag(r.tag, cx, midY, a);
+            }
 
-            Render2D.drawRoundedRectWithOutline(cx, tagY, tagW, tagH, 3.0F,
-                    ColorUtil.withAlpha(r.tagColor, Math.round(36 * a)),
-                    0.65F,
-                    ColorUtil.withAlpha(r.tagColor, Math.round(115 * a)));
-            Fonts.drawCenteredString(Fonts.SF_MEDIUM, r.tag, cx + tagW / 2.0F,
-                    midY - Fonts.SF_MEDIUM.textHeight(tagSize) / 2.0F + 0.35F,
-                    tagSize, ColorUtil.withAlpha(r.tagColor, Math.round(255 * a)));
+            // Right side: spectator/playing badge + optional status label (V / NEAR)
+            float rightLimit = x + width - PAD_X;
+            if (r.spectator != null) {
+                String mode = r.spectator ? "SPEC" : "SURV";
+                int modeColor = r.spectator
+                        ? ColorUtil.rgba(255, 196, 68, 255)
+                        : ColorUtil.rgba(110, 230, 145, 255);
+                float mSize = 6.0F;
+                float mW = Fonts.SF_MEDIUM.getWidth(mode, mSize);
+                float mX = rightLimit - mW;
+                Fonts.drawString(Fonts.SF_MEDIUM, mode, mX,
+                        midY - Fonts.SF_MEDIUM.textHeight(mSize) / 2.0F + 0.3F,
+                        mSize, ColorUtil.withAlpha(modeColor, Math.round(240 * a)));
+                rightLimit = mX - 5.0F;
+            }
 
-            cx += tagW + 5.0F;
-
-            // Right side: status dot + optional short status badge (V / GM3 / NEAR)
-            float dotR = 2.4F;
-            float dotCx = x + width - PAD_X - dotR;
-            HudStyle.drawStatusDot(dotCx, midY, dotR, r.status.color, a);
-
-            float rightLimit = dotCx - dotR - 4.5F;
             if (!r.status.label.isEmpty()) {
                 float stSize = 6.0F;
-                float stW = Fonts.SF_MEDIUM.getWidth(r.status.label, stSize) + 5.0F;
-                float stH = 8.5F;
+                float stW = Fonts.SF_MEDIUM.getWidth(r.status.label, stSize);
                 float stX = rightLimit - stW;
-                float stY = midY - stH / 2.0F;
-                Render2D.drawRoundedRect(stX, stY, stW, stH, 2.5F,
-                        ColorUtil.withAlpha(r.status.color, Math.round(34 * a)));
-                Fonts.drawCenteredString(Fonts.SF_MEDIUM, r.status.label, stX + stW / 2.0F,
+                Fonts.drawString(Fonts.SF_MEDIUM, r.status.label, stX,
                         midY - Fonts.SF_MEDIUM.textHeight(stSize) / 2.0F + 0.3F,
                         stSize, ColorUtil.withAlpha(r.status.color, Math.round(240 * a)));
-                rightLimit = stX - 4.0F;
+                rightLimit = stX - 5.0F;
             }
 
             // Staff nickname
@@ -494,15 +455,53 @@ public final class StaffHud extends HudElement implements IMinecraft {
         Render2D.popScissor();
     }
 
+    private static float tagWidth(ServerTags.Tag tag) {
+        float w = 0.0F;
+        for (ServerTags.TagRun run : tag.runs()) {
+            w += mc.font.width(run.text());
+        }
+        return w * TAG_SCALE;
+    }
+
+    /**
+     * Тег рисуем ванильным шрифтом (юникод-фолбэк как в табе): small caps
+     * и прочие серверные глифы отсутствуют в нашем MSDF. Куски — своими цветами.
+     */
+    private static float drawRowTag(ServerTags.Tag tag, float cx, float midY, float alpha) {
+        var extractor = RenderExtend.currentGuiGraphicsExtractor();
+        if (extractor == null) return cx;
+
+        float top = midY - mc.font.lineHeight * TAG_SCALE / 2.0F;
+        // Карточка и предыдущие строки уже в очереди — сбрасываем, чтобы текст лёг сверху.
+        Render2DUtil.flush();
+        var pose = extractor.pose();
+        pose.pushMatrix();
+        pose.translate(cx, top);
+        pose.scale(TAG_SCALE, TAG_SCALE);
+
+        float pen = 0.0F;
+        for (ServerTags.TagRun run : tag.runs()) {
+            int color = run.color() != 0 ? run.color() : Theme.getAccentColor();
+            extractor.text(mc.font, run.text(), Math.round(pen), 0,
+                    ColorUtil.multiplyAlpha(color, alpha), true);
+            pen += mc.font.width(run.text());
+        }
+
+        pose.popMatrix();
+        return cx + pen * TAG_SCALE + 5.0F;
+    }
+
     private static float measureRowWidth(StaffRow r) {
         float w = 0.0F;
         if (r.skin != null) w += HEAD + 4.5F;
-        w += Fonts.SF_MEDIUM.getWidth(r.tag, 6.5F) + 8.0F + 5.0F;
+        if (r.tag != null) w += tagWidth(r.tag) + 5.0F;
         w += Fonts.SF_MEDIUM.getWidth(r.name, 7.5F) + 10.0F;
-        if (!r.status.label.isEmpty()) {
-            w += Fonts.SF_MEDIUM.getWidth(r.status.label, 6.0F) + 9.0F;
+        if (r.spectator != null) {
+            w += Fonts.SF_MEDIUM.getWidth("SPEC", 6.0F) + 5.0F;
         }
-        w += 8.0F; // status dot
+        if (!r.status.label.isEmpty()) {
+            w += Fonts.SF_MEDIUM.getWidth(r.status.label, 6.0F) + 5.0F;
+        }
         return w;
     }
 }

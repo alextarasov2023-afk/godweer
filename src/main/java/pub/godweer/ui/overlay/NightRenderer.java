@@ -37,9 +37,18 @@ public final class NightRenderer {
     private final SettingsPopup settingsPopup = new SettingsPopup();
     private final Map<String, Float> switchAnim = new HashMap<>();
 
-    private static final int CARD_OFF = 0xFF14161D;
+    // Плоская палитра клик-гуя: фон почти чёрный, карточки холодные серо-синие,
+    // активные элементы подсвечены акцентом. Градиентов и стекла нет —
+    // всё строится на двух-трёх тонах и обводке.
+    private static final int PANEL_BG = ColorUtil.rgba(10, 11, 15, 246);
+    private static final int SIDEBAR_BG = ColorUtil.rgba(5, 5, 5, 255);
+    private static final int CARD_OFF = ColorUtil.rgba(15, 15, 23, 255);
+    private static final int CARD_ON = ColorUtil.rgba(29, 39, 52, 255);
+    private static final int OUTLINE = ColorUtil.rgba(45, 61, 83, 255);
+    private static final int ROW_HOVER = ColorUtil.rgba(20, 21, 34, 255);
+
     private int cardOn() {
-        return ColorUtil.lerp(0xFF171A26, Theme.getAccentColor(), 0.22F);
+        return ColorUtil.lerp(CARD_ON, Theme.getAccentColor(), 0.18F);
     }
 
     private static IconUse catIcon(Category c) {
@@ -93,13 +102,14 @@ public final class NightRenderer {
         extractor.pose().scale(scale, scale);
         extractor.pose().translate(-cx, -cy);
 
+        // Плоская заливка вместо размытия: мир за панелью просто не виден.
         float alpha = open;
-        int bg = ColorUtil.rgba(13, 14, 19, (int) (245 * alpha));
-        Render2D.drawBlur(x, y, w, h, 10.0F, bg, alpha);
-        Render2D.drawRoundedRect(x, y, w, h, 10.0F, ColorUtil.multiplyAlpha(0xE60D0E13, alpha));
+        Render2D.drawRoundedRect(x, y, w, h, 10.0F, ColorUtil.multiplyAlpha(PANEL_BG, alpha));
+        Render2D.drawRoundedOutline(x, y, w, h, 10.0F, 0.9F, ColorUtil.multiplyAlpha(OUTLINE, alpha));
 
         float sw = sideW(s);
-        Render2D.drawRect(x + sw, y + 12, 1.0F, h - 24, ColorUtil.multiplyAlpha(0xFFFFFFFF, 0.05F * alpha));
+        Render2D.drawRoundedRect(x, y, sw, h, 10.0F, ColorUtil.multiplyAlpha(SIDEBAR_BG, alpha));
+        Render2D.drawRect(x + sw, y + 12, 1.0F, h - 24, ColorUtil.multiplyAlpha(OUTLINE, 0.9F * alpha));
 
         drawSidebar(s, x, y, h, sw, mouseX, mouseY, alpha);
         drawContent(s, x + sw, y, w - sw, h, mouseX, mouseY, alpha);
@@ -126,7 +136,12 @@ public final class NightRenderer {
             boolean active = s.getCategory() == c;
             if (active) {
                 Render2D.drawRoundedRect(x + 6, catY, sw - 12, 22, 4.0F,
-                        ColorUtil.multiplyAlpha(Theme.getAccentWithAlpha(45), alpha));
+                        ColorUtil.multiplyAlpha(CARD_ON, alpha));
+                Render2D.drawRoundedOutline(x + 6, catY, sw - 12, 22, 4.0F, 0.8F,
+                        ColorUtil.multiplyAlpha(OUTLINE, alpha));
+            } else if (mouseX >= x + 6 && mouseX <= x + sw - 6 && mouseY >= catY && mouseY <= catY + 22) {
+                Render2D.drawRoundedRect(x + 6, catY, sw - 12, 22, 4.0F,
+                        ColorUtil.multiplyAlpha(ROW_HOVER, alpha));
             }
             int col = active ? accent : Theme.TEXT_MUTED;
             Fonts.drawIcon(catIcon(c), x + 12, catY + 6.0F, 10.0F,
@@ -192,7 +207,9 @@ public final class NightRenderer {
         float sx = x + w - searchW - 12;
         float sy = y + 10.0F;
         Render2D.drawRoundedRect(sx, sy, searchW, searchH, 4.0F,
-                ColorUtil.multiplyAlpha(s.isSearchFocused() ? 0xCC12141D : 0x8812141D, a));
+                ColorUtil.multiplyAlpha(s.isSearchFocused() ? CARD_ON : CARD_OFF, a));
+        Render2D.drawRoundedOutline(sx, sy, searchW, searchH, 4.0F, 0.8F,
+                ColorUtil.multiplyAlpha(OUTLINE, a));
         Fonts.drawIcon(IconUse.SEARCH, sx + 6, sy + 4.5F, 9.0F,
                 ColorUtil.multiplyAlpha(s.isSearchFocused() ? Theme.getAccentColor() : Theme.TEXT_MUTED, a));
         String q = s.getSearch() + (s.isSearchFocused() ? "|" : "");
@@ -258,7 +275,9 @@ public final class NightRenderer {
 
             Render2D.drawRoundedRect(px, py, colW, cardH, 6.0F,
                     ColorUtil.multiplyAlpha(m.isState() ? onBg : CARD_OFF,
-                            mAlpha * (m.isState() ? 0.8F : 0.6F) + hoverBoost * mAlpha));
+                            mAlpha * (m.isState() ? 0.95F : 0.85F) + hoverBoost * mAlpha));
+            Render2D.drawRoundedOutline(px, py, colW, cardH, 6.0F, 0.8F,
+                    ColorUtil.multiplyAlpha(OUTLINE, mAlpha * (hovered ? 1.0F : 0.65F)));
             if (m.isState()) {
                 Render2D.drawRoundedRect(px, py + 7.0F, 2.0F, 24.0F, 1.0F,
                         ColorUtil.multiplyAlpha(accent, mAlpha));
@@ -310,9 +329,11 @@ public final class NightRenderer {
             if (expA > 0.02F) {
                 float panelH = expA * (setH + 4.0F);
                 Render2D.drawRoundedRect(px + 4, py + 38.0F, colW - 8, panelH, 4.0F,
-                        ColorUtil.multiplyAlpha(0xFF0D0F15, mAlpha * 0.75F));
+                        ColorUtil.multiplyAlpha(SIDEBAR_BG, mAlpha * 0.9F));
+                Render2D.drawRoundedOutline(px + 4, py + 38.0F, colW - 8, panelH, 4.0F, 0.7F,
+                        ColorUtil.multiplyAlpha(OUTLINE, mAlpha * 0.8F));
                 Render2D.drawRoundedRect(px + 10, py + 38.5F, colW - 20, 0.5F, 0.25F,
-                        ColorUtil.multiplyAlpha(0xFFFFFFFF, mAlpha * 0.07F));
+                        ColorUtil.multiplyAlpha(OUTLINE, mAlpha * 0.9F));
                 float setY = py + 41.0F;
                 for (SettingRenderer<?> sr : m.getSettingRenderers()) {
                     float sh = sr.getHeight();

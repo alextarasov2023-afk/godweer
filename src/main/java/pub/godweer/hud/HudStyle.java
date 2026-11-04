@@ -7,18 +7,39 @@ import pub.godweer.util.render.font.Fonts;
 import pub.godweer.util.render.font.IconUse;
 
 /**
- * Shared visual language for HUD cards:
- * deep glass blur, top specular rim + accent border,
- * and unified headers with right-aligned icon & subtle divider.
+ * Shared visual language for HUD elements, matching the reference screenshot:
+ * every metric, header and row is its own small near-black pill — no glass, no
+ * blur, no gradient, no outline, no shared card behind a list. Text is white /
+ * grey, icons are tiny and the accent color only touches progress and glyphs.
  */
 public final class HudStyle {
 
-    public static final int CARD_BG = ColorUtil.rgba(12, 13, 20, 224);
-    public static final int CARD_BG_TOP = ColorUtil.rgba(22, 24, 36, 228);
-    public static final int CARD_BG_BOTTOM = ColorUtil.rgba(10, 11, 17, 232);
-    public static final int TEXT_PRIMARY = ColorUtil.rgba(242, 244, 252, 255);
-    public static final int TEXT_SECONDARY = ColorUtil.rgba(162, 166, 186, 255);
-    public static final int TEXT_DIM = ColorUtil.rgba(118, 122, 142, 255);
+    /** Pill fill: near-black and almost opaque, so the world barely shows through. */
+    public static final int CARD_BG = ColorUtil.rgba(6, 7, 12, 232);
+
+    /** Pill geometry, shared by every HUD element so rows line up across panels. */
+    public static final float PILL_H = 16.0F;
+    public static final float PILL_R = 4.5F;
+    public static final float PILL_GAP = 4.0F;
+    public static final float PILL_PAD = 6.0F;
+    /** Visible height every icon is fitted to, so glyphs of different size read as one line. */
+    public static final float ICON = 8.0F;
+
+    /** Subtle row / slot fills used inside the cards. */
+    public static final int ROW_BG = ColorUtil.rgba(255, 255, 255, 7);
+    public static final int ROW_BG_ACTIVE = ColorUtil.rgba(255, 255, 255, 14);
+    public static final int PILL_BG = ColorUtil.rgba(255, 255, 255, 9);
+    public static final int TRACK = ColorUtil.rgba(255, 255, 255, 22);
+    /** Thin vertical stroke between segments of one pill. */
+    public static final int DIVIDER = ColorUtil.rgba(255, 255, 255, 34);
+
+    public static final int TEXT_PRIMARY = ColorUtil.rgba(240, 243, 247, 255);
+    public static final int TEXT_SECONDARY = ColorUtil.rgba(150, 156, 168, 255);
+    public static final int TEXT_DIM = ColorUtil.rgba(112, 118, 130, 255);
+
+    /** Health bar from the reference: flat yellow body, lavender absorption tail. */
+    public static final int HP_FILL = ColorUtil.rgba(252, 213, 0, 255);
+    public static final int HP_ABSORB = ColorUtil.rgba(168, 160, 232, 255);
 
     private HudStyle() {
     }
@@ -29,58 +50,70 @@ public final class HudStyle {
 
     public static void drawCard(float x, float y, float w, float h, float radius, float alpha) {
         if (w <= 0.5F || h <= 0.5F || alpha <= 0.01F) return;
-        int accent = Theme.getAccentColor();
+        // Flat translucent fill: no outline, no blur, no gradient.
+        Render2D.drawRoundedRect(x, y, w, h, radius, ColorUtil.multiplyAlpha(CARD_BG, alpha));
+    }
 
-        // Frosted blur base (no external drop shadow)
-        Render2D.drawBlur(x, y, w, h, radius, 18.0F,
-                ColorUtil.multiplyAlpha(CARD_BG, alpha), alpha);
+    /** Standard pill: the one shape every HUD row, metric and header uses. */
+    public static void drawPill(float x, float y, float w) {
+        drawCard(x, y, w, PILL_H, PILL_R);
+    }
 
-        // Subtle vertical gradient sheen
-        Render2D.drawGradientRound(x, y, w, h, radius,
-                ColorUtil.withAlpha(accent, Math.round(18 * alpha)),
-                ColorUtil.rgba(255, 255, 255, Math.round(7 * alpha)),
-                ColorUtil.rgba(0, 0, 0, Math.round(35 * alpha)),
-                ColorUtil.rgba(0, 0, 0, Math.round(25 * alpha)));
+    /** Thin vertical stroke between pill segments. Returns the x after it. */
+    public static final float DIVIDER_W = 1.0F;
 
-        // Subtle outer border
-        Render2D.drawRoundedOutline(x, y, w, h, radius, 0.85F,
-                ColorUtil.lerp(ColorUtil.rgba(255, 255, 255, Math.round(28 * alpha)),
-                        ColorUtil.withAlpha(accent, Math.round(75 * alpha)), 0.35F));
+    public static float drawDivider(float x, float cy) {
+        Render2D.drawRoundedRect(x, cy - 4.0F, DIVIDER_W, 8.0F, 0.5F, DIVIDER);
+        return x + DIVIDER_W;
+    }
+
+    /** Width of `icon | text` content, the shape every pill segment is built from. */
+    public static float segmentWidth(IconUse icon, String text, float size) {
+        return Fonts.iconFittedWidth(icon, ICON) + 4.0F + DIVIDER_W + 4.0F
+                + Fonts.SF_MEDIUM.getWidth(text, size);
+    }
+
+    /** Draws `icon | text` at x, vertically centred on cy. Returns the x after it. */
+    public static float drawSegment(float x, float cy, IconUse icon, String text, float size,
+                                    int iconColor, int textColor) {
+        Fonts.drawIconFitted(icon, x, cy, ICON, iconColor);
+        x += Fonts.iconFittedWidth(icon, ICON) + 4.0F;
+        x = drawDivider(x, cy);
+        Fonts.drawString(Fonts.SF_MEDIUM, text, x + 4.0F,
+                cy - Fonts.SF_MEDIUM.textHeight(size) / 2.0F + 0.35F, size, textColor);
+        return x + 4.0F + Fonts.SF_MEDIUM.getWidth(text, size);
     }
 
     /**
-     * Draws a clean header: bold title on the left, accent icon on the right,
-     * and a full-width subtle separator line.
+     * Compact label row: muted title on the left, tiny accent icon on the right.
+     * No divider, no header pill. Returns the y where card content starts.
      */
-    public static void drawHeader(float x, float y, float w, float headerH,
+    public static float drawLabel(float x, float y, float w, float labelH,
                                   String title, IconUse rightIcon) {
-        int accent = Theme.getAccentColor();
         float padX = 8.0F;
-        float titleSize = 8.5F;
-        float titleY = y + (headerH - Fonts.SF_MEDIUM.textHeight(titleSize)) / 2.0F + 0.5F;
+        float size = 7.0F;
+        float ty = y + (labelH - Fonts.SF_MEDIUM.textHeight(size)) / 2.0F + 0.3F;
 
-        Fonts.drawString(Fonts.SF_MEDIUM, title, x + padX, titleY, titleSize, TEXT_PRIMARY);
+        float titleW = w - padX * 2.0F;
+        if (rightIcon != null) titleW -= 15.0F;
+        String shownTitle = ServerGui.ellipsize(title, Math.max(0.0F, titleW), size);
+        Fonts.drawString(Fonts.SF_MEDIUM, shownTitle, x + padX, ty, size, TEXT_SECONDARY);
 
         if (rightIcon != null) {
-            // Высота подгоняется под реальную видимую часть глифа: у иконок из разных
-            // шрифтов (в т.ч. эмодзи) при одном размере шрифта она разная.
-            float iconH = 8.5F;
-            float glyphW = Fonts.iconFittedWidth(rightIcon, iconH);
-            Fonts.drawIconFitted(rightIcon, x + w - padX - glyphW, y + headerH / 2.0F,
-                    iconH, ColorUtil.withAlpha(accent, 255));
+            float glyphW = Fonts.iconFittedWidth(rightIcon, size);
+            Fonts.drawIconFitted(rightIcon, x + w - padX - glyphW, y + labelH / 2.0F, size,
+                    ColorUtil.withAlpha(Theme.getAccentColor(), 235));
         }
-
-        // Full-width divider line
-        float divY = y + headerH;
-        Render2D.drawRect(x + 0.5F, divY, w - 1.0F, 0.75F, ColorUtil.rgba(255, 255, 255, 20));
+        return y + labelH;
     }
 
     /**
-     * Status dot with soft outer halo (used in Staff list).
+     * Flat status dot with a thin ring (no soft glow / halo).
      */
     public static void drawStatusDot(float cx, float cy, float radius, int color, float alpha) {
         if (alpha <= 0.02F) return;
-        Render2D.drawCircle(cx, cy, radius + 2.0F, ColorUtil.withAlpha(color, Math.round(45 * alpha)));
         Render2D.drawCircle(cx, cy, radius, ColorUtil.multiplyAlpha(color, alpha));
+        Render2D.drawCircleOutline(cx, cy, radius + 1.0F, 0.8F,
+                ColorUtil.withAlpha(color, Math.round(70 * alpha)));
     }
 }

@@ -16,8 +16,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import pub.godweer.rotation.RotationHandler;
 import pub.godweer.event.EventManager;
 import pub.godweer.event.list.EventTravel;
-import pub.godweer.module.impl.player.AntiPush;
-import pub.godweer.module.impl.render.FreeLook;
 
 /**
  * Create by daun kvass
@@ -67,26 +65,6 @@ public abstract class EntityMixin {
         }
     }
 
-    @Inject(method = "turn", at = @At("HEAD"), cancellable = true)
-    private void onEntityTurn(double yRot, double xRot, CallbackInfo ci) {
-        if ((Object) this == Minecraft.getInstance().player && FreeLook.INSTANCE != null && FreeLook.INSTANCE.isActive()) {
-            FreeLook.INSTANCE.handleTurn(yRot, xRot);
-            ci.cancel();
-        }
-    }
-
-    @Inject(method = "push(Lnet/minecraft/world/entity/Entity;)V", at = @At("HEAD"), cancellable = true)
-    private void onPush(Entity entity, CallbackInfo ci) {
-        if (AntiPush.INSTANCE.isEnabled() && AntiPush.INSTANCE.modes.isEnabled("Entity")) {
-            Entity self = (Entity) (Object) this;
-            Minecraft mc = Minecraft.getInstance();
-
-            if (self == mc.player || entity == mc.player) {
-                ci.cancel();
-            }
-        }
-    }
-
     @Inject(method = "move", at = @At("HEAD"), cancellable = true)
     private void onMove(MoverType moverType, Vec3 movement, CallbackInfo ci) {
         if ((Object) this instanceof LocalPlayer) {
@@ -95,16 +73,6 @@ public abstract class EntityMixin {
 
             if (event.isCancelled()) {
                 ci.cancel();
-            }
-        }
-    }
-
-    @Inject(method = "isPushedByFluid", at = @At("HEAD"), cancellable = true)
-    private void onIsPushedByFluid(CallbackInfoReturnable<Boolean> cir) {
-        if (AntiPush.INSTANCE.isEnabled() && AntiPush.INSTANCE.modes.isEnabled("Water")) {
-            Entity self = (Entity) (Object) this;
-            if (self == Minecraft.getInstance().player) {
-                cir.setReturnValue(false);
             }
         }
     }

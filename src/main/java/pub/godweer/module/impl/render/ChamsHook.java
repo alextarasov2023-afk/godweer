@@ -27,18 +27,17 @@ import java.util.Map;
  */
 public final class ChamsHook {
 
-    // Скорость фазы у каждого шейдера своя: полосам hologram нужен быстрый бег,
-    // туманностям cosmos — медленное ползущее смещение.
+    // Скорость фазы у каждого шейдера своя: энергетике plasma нужен быстрый бег,
+    // туманностям cosmos — медленное ползущее смещение, переливающейся плёнке
+    // spectrum — еле заметный дрейф. wireframe статичен, у него только дыхание.
     private static final Map<String, Float> PHASE_RATE = Map.ofEntries(
-            Map.entry("glow", 0.35f),
             Map.entry("plasma", 0.30f),
             Map.entry("lava", 0.20f),
-            Map.entry("hologram", 0.55f),
             Map.entry("glitch", 0.40f),
-            Map.entry("aurora", 0.26f),
-            Map.entry("spectrum", 0.45f),
+            Map.entry("spectrum", 0.10f),
             Map.entry("cosmos", 0.16f),
-            Map.entry("toxic", 0.32f));
+            Map.entry("toxic", 0.32f),
+            Map.entry("wireframe", 0.06f));
 
     private static final float DEFAULT_RATE = 0.30f;
 
@@ -72,6 +71,16 @@ public final class ChamsHook {
     public static boolean hidesArmor(LivingEntityRenderState state) {
         Chams m = target(state);
         return m != null && m.isHideArmor();
+    }
+
+    /**
+     * Плащ подаётся отдельным ванильным слоем уже после тела и не знает, что
+     * тело нарисовано шейдером без записи глубины. Из-за этого он ложится
+     * поверх торса и читается как «плащ видно сквозь тело». Пока существо
+     * красится chams, слой плаща не подаём вовсе.
+     */
+    public static boolean hidesCape(AvatarRenderState state) {
+        return target(state) != null;
     }
 
     public static Integer tint(LivingEntityRenderState state) {

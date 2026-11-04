@@ -4,6 +4,7 @@ import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Gui;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
+import net.minecraft.client.gui.screens.TitleScreen;
 import net.minecraft.util.profiling.ProfilerFiller;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,6 +14,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.LocalCapture;
 import pub.godweer.Client;
+import pub.godweer.ui.clickgui.CustomTitleScreen;
 import pub.godweer.util.RenderExtend;
 import pub.godweer.event.Events;
 
@@ -33,5 +35,15 @@ public abstract class GuiMixin {
         RenderExtend.sttime = -1L;}
     }
 
-
+    /**
+     * Все три места, где ваниль создаёт TitleScreen (стартовый экран, abortResourcePackRecovery,
+     * disconnectFromWorld), проходят через Gui.setScreen — это единственная точка подмены.
+     */
+    @Inject(method = "setScreen", at = @At("HEAD"), cancellable = true)
+    private void replaceMainMenu(net.minecraft.client.gui.screens.Screen screen, CallbackInfo ci) {
+        if (screen instanceof TitleScreen) {
+            ci.cancel();
+            this.minecraft.gui.setScreen(new CustomTitleScreen());
+        }
+    }
 }

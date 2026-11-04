@@ -1,10 +1,6 @@
 package pub.godweer.ui.clickgui;
 
 import com.mojang.blaze3d.platform.InputConstants;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import hh.ru.Info;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.gui.screens.ConfirmScreen;
@@ -28,7 +24,6 @@ import pub.godweer.util.render.font.IconUse;
 import pub.godweer.util.render.Render2DUtil;
 import pub.godweer.account.AccountManager;
 
-import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
@@ -37,19 +32,8 @@ import java.util.UUID;
  * Create by daun kvass
  */
 public class CustomTitleScreen extends Screen {
-    private static String as = "images/ui/title/title";
-    private static final Identifier[] BACKGROUNDS = new Identifier[]{
-            Identifier.fromNamespaceAndPath("godweer", as+".png"),
-            Identifier.fromNamespaceAndPath("godweer", as+"2.png"),
-            Identifier.fromNamespaceAndPath("godweer", as+"3.png"),
-            Identifier.fromNamespaceAndPath("godweer", as+"4.png"),
-            Identifier.fromNamespaceAndPath("godweer", as+"5.png"),
-            Identifier.fromNamespaceAndPath("godweer", as+"6.png")
-    };
-    private static int currentBgIndex = 0;
-
-    private static final File WALLPAPER_FILE = new File(new File(System.getProperty("user.home"), "femboy"), "wallpaper.json");
-    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+    /** Фон меню рисуется примитивами — сторонних картинок в этом экране больше нет. */
+    private static final int BACKDROP = ColorUtil.rgba(9, 10, 14, 255);
 
     private boolean accountModalOpen = false;
     private float accountModalAnim = 0.0F;
@@ -58,60 +42,63 @@ public class CustomTitleScreen extends Screen {
     private float accountScroll = 0.0F;
     private float maxAccountScroll = 0.0F;
 
-    private boolean bgSelectorOpen = false;
-    private float bgSelectorAnim = 0.0F;
-
     private float screenAlpha = 0.0F;
     private Screen targetScreen = null;
 
-    private final float[] buttonHoverAnims = new float[5];
+    /** Плоская палитра меню: единственный фон кнопок — белый пиксельной прозрачностью. */
+    private static final int CARD_BG = ColorUtil.rgba(8, 9, 12, 150);
+    private static final int CARD_OUTLINE = ColorUtil.rgba(255, 255, 255, 22);
+    private static final int BTN_BG = ColorUtil.rgba(255, 255, 255, 8);
+    private static final int BTN_BG_HOVER = ColorUtil.rgba(255, 255, 255, 20);
 
-    static {
-        loadWallpaper();
-    }
+    private static final float COL_X = 32.0F;
+    private static final float COL_W = 196.0F;
+    private static final float BTN_H = 32.0F;
+    private static final float BTN_GAP = 6.0F;
+    private static final float CARD_PAD = 9.0F;
+    private static final float LOGO_H = 62.0F;
+
+    private record MenuButton(String label, IconUse icon) {}
+
+    private static final MenuButton[] MENU = {
+            new MenuButton("Single Player", IconUse.HOME),
+            new MenuButton("Multi Player", IconUse.WORLD),
+            new MenuButton("Alt Manager", IconUse.PERSONS),
+            new MenuButton("Settings", IconUse.GEAR),
+            new MenuButton("Quit", IconUse.EXIT)
+    };
+
+    private final float[] buttonHoverAnims = new float[MENU.length];
 
     public CustomTitleScreen() {
         super(Component.literal("Main Menu"));
     }
 
     @Override
+    public boolean isPauseScreen() {
+        return false;
+    }
+
+    /** Ванильное меню не закрывается по ESC — иначе из главного экрана попадал бы в пустоту. */
+    @Override
+    public boolean shouldCloseOnEsc() {
+        return false;
+    }
+
+    /** Верх карточки меню: весь блок (лого + кнопки) центрирован по высоте экрана. */
+    private float menuTop() {
+        float block = LOGO_H + CARD_PAD * 2.0F
+                + MENU.length * BTN_H + (MENU.length - 1) * BTN_GAP;
+        // 58 — ниже аккаунт-плашки в левом углу, чтобы на маленьком окне блок не залезал на неё.
+        return Math.max(58.0F, (this.height - block) / 2.0F);
+    }
+
+    @Override
     protected void init() {
         super.init();
         AccountManager.getInstance().applyActiveSession();
-        loadWallpaper();
         this.screenAlpha = 0.0F;
         this.targetScreen = null;
-    }
-
-    public static void loadWallpaper() {
-        if (!WALLPAPER_FILE.exists()) return;
-        try (Reader reader = new InputStreamReader(new FileInputStream(WALLPAPER_FILE), StandardCharsets.UTF_8)) {
-            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-            if (root.has("wallpaperIndex")) {
-                int index = root.get("wallpaperIndex").getAsInt();
-                if (index >= 0 && index < BACKGROUNDS.length) {
-                    currentBgIndex = index;
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    public static void saveWallpaper() {
-        try {
-            if (!WALLPAPER_FILE.getParentFile().exists()) {
-                WALLPAPER_FILE.getParentFile().mkdirs();
-            }
-            JsonObject root = new JsonObject();
-            root.addProperty("wallpaperIndex", currentBgIndex);
-
-            try (Writer writer = new OutputStreamWriter(new FileOutputStream(WALLPAPER_FILE), StandardCharsets.UTF_8)) {
-                GSON.toJson(root, writer);
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
     }
 
     private void switchScreen(Screen screen) {
@@ -134,26 +121,15 @@ public class CustomTitleScreen extends Screen {
         }
 
         this.accountModalAnim = Mth.clamp(this.accountModalAnim + (accountModalOpen ? 0.08F : -0.08F), 0.0F, 1.0F);
-        this.bgSelectorAnim = Mth.clamp(this.bgSelectorAnim + (bgSelectorOpen ? 0.08F : -0.08F), 0.0F, 1.0F);
 
         RenderExtend.enter2D(null, extractor, null);
         try {
             Render2DUtil.beginFrame();
 
-            Render2D.drawTexture(BACKGROUNDS[currentBgIndex], 0, 0, screenWidth, screenHeight, 0.0F, 0xFFFFFFFF);
+            drawBackdrop(screenWidth, screenHeight);
 
-            float rightPanelW = 240.0F;
-            Render2D.drawGradientRound(screenWidth - rightPanelW, 0, rightPanelW, screenHeight, 0.0F,
-                    0x00000000, 0x900B0C10, 0x900B0C10, 0x00000000);
-            renderRightButtons(screenWidth, screenHeight, mouseX, mouseY);
-
-            renderTopLeftAccount(screenWidth, screenHeight);
-
-            renderWallpaperButton(screenWidth, screenHeight, mouseX, mouseY);
-
-            if (this.bgSelectorAnim > 0.001F) {
-                renderWallpaperModal(extractor, screenWidth, screenHeight, mouseX, mouseY, this.bgSelectorAnim);
-            }
+            renderMenu(mouseX, mouseY);
+            renderTopLeftAccount();
 
             if (this.accountModalAnim > 0.001F) {
                 renderAccountModal(screenWidth, screenHeight, mouseX, mouseY, this.accountModalAnim);
@@ -170,124 +146,116 @@ public class CustomTitleScreen extends Screen {
         }
     }
 
-    private void renderRightButtons(int screenWidth, int screenHeight, int mouseX, int mouseY) {
-        float btnW = 160.0F;
-        float btnH = 28.0F;
-        float spacing = 7.0F;
+    private void renderMenu(int mouseX, int mouseY) {
+        float cardY = menuTop() + LOGO_H;
+        float cardH = CARD_PAD * 2.0F + MENU.length * BTN_H + (MENU.length - 1) * BTN_GAP;
 
-        String[] titles = {"Single Player", "Multi Player", "Alt Manager", "Settings", "Quit"};
+        drawLogo(COL_X, menuTop());
 
-        float totalH = (titles.length * btnH) + ((titles.length - 1) * spacing);
-        float startX = screenWidth / 2.5f;
-        float startY = (screenHeight - totalH) / 2.0F + 10.0F;
+        Render2D.drawRoundedRect(COL_X, cardY, COL_W, cardH, 12.0F, CARD_BG);
+        Render2D.drawRoundedOutline(COL_X, cardY, COL_W, cardH, 12.0F, 1.0F, CARD_OUTLINE);
 
-        float wave = (float) (Math.sin(System.currentTimeMillis() / 1150.0) * 0.5 + 0.5);
-        int animatedTitleColor = ColorUtil.interpolateColor(ColorUtil.WHITE, Theme.getAccentColor(), wave);
+        boolean frozen = accountModalOpen || targetScreen != null;
+        float bx = COL_X + CARD_PAD;
+        float bw = COL_W - CARD_PAD * 2.0F;
+        float y = cardY + CARD_PAD;
 
-        Fonts.drawCenteredString(Fonts.SF_MEDIUM, Info.NAME, startX + (btnW / 2.0F), startY - 26.0F, 16.0F, animatedTitleColor);
-
-        for (int i = 0; i < titles.length; i++) {
-            float y = startY + i * (btnH + spacing);
-            boolean hovered = !accountModalOpen && !bgSelectorOpen && targetScreen == null
-                    && mouseX >= startX && mouseX <= startX + btnW && mouseY >= y && mouseY <= y + btnH;
-
-            buttonHoverAnims[i] = Mth.clamp(buttonHoverAnims[i] + (hovered ? 0.12F : -0.12F), 0.0F, 1.0F);
-            float hAnim = buttonHoverAnims[i];
-
-            int bgCol = ColorUtil.lerp(0x55111218, Theme.getAccentWithAlpha(50), hAnim);
-            Render2D.drawRoundedRect(startX, y, btnW, btnH, 5.0F, bgCol);
-
-            int textCol = ColorUtil.lerp(Theme.TEXT_MAIN, ColorUtil.WHITE, hAnim);
-            String localizedTitle = Localization.get(titles[i]);
-            Fonts.drawCenteredString(Fonts.SF_MEDIUM, localizedTitle, startX + (btnW / 2.0F), y + (btnH - 10.0F) / 2.0F + 1.0F, 10.0F, textCol);
+        for (int i = 0; i < MENU.length; i++) {
+            boolean hovered = !frozen && mouseX >= bx && mouseX <= bx + bw && mouseY >= y && mouseY <= y + BTN_H;
+            buttonHoverAnims[i] = Mth.clamp(buttonHoverAnims[i] + (hovered ? 0.14F : -0.14F), 0.0F, 1.0F);
+            drawMenuButton(MENU[i], bx, y, bw, buttonHoverAnims[i]);
+            y += BTN_H + BTN_GAP;
         }
     }
 
-    private void renderTopLeftAccount(int screenWidth, int screenHeight) {
+    /**
+     * Кнопка меню: плоская подложка, тонкая акцентная рамка и штрих у левого края на
+     * наведении, иконка и подпись сдвигаются на пару пикселей. Никаких градиентов —
+     * читаемость даёт карточка, а не переливание фона.
+     */
+    private void drawMenuButton(MenuButton item, float x, float y, float w, float anim) {
+        int accent = Theme.getAccentColor();
+
+        Render2D.drawRoundedRect(x, y, w, BTN_H, 8.0F, ColorUtil.lerp(BTN_BG, BTN_BG_HOVER, anim));
+        if (anim > 0.01F) {
+            Render2D.drawRoundedOutline(x, y, w, BTN_H, 8.0F, 1.0F,
+                    ColorUtil.multiplyAlpha(accent, 0.6F * anim));
+            float barH = (BTN_H - 14.0F) * anim;
+            Render2D.drawRoundedRect(x + 3.0F, y + (BTN_H - barH) / 2.0F, 2.5F, barH, 1.25F,
+                    ColorUtil.multiplyAlpha(accent, anim));
+        }
+
+        float slide = anim * 2.5F;
+        float iconH = 12.0F;
+        float ix = x + 12.0F + slide;
+        Fonts.drawIconFitted(item.icon(), ix, y + BTN_H / 2.0F, iconH,
+                ColorUtil.lerp(Theme.TEXT_MUTED, accent, anim));
+
+        float size = 11.5F;
+        float tx = ix + Fonts.iconFittedWidth(item.icon(), iconH) + 9.0F;
+        Render2D.pushScissor(tx, y, x + w - tx - 8.0F, BTN_H);
+        Fonts.drawString(Fonts.SF_MEDIUM, Localization.get(item.label()), tx,
+                y + (BTN_H - Fonts.SF_MEDIUM.textHeight(size)) / 2.0F + 0.5F, size,
+                ColorUtil.lerp(Theme.TEXT_MAIN, ColorUtil.WHITE, anim));
+        Render2D.popScissor();
+    }
+
+    private void drawLogo(float x, float y) {
+        float nameSize = 26.0F;
+        float baseline = y + 2.0F;
+        Fonts.drawString(Fonts.SF_MEDIUM, Info.NAME, x, baseline, nameSize, ColorUtil.WHITE);
+
+        float ruleY = baseline + Fonts.SF_MEDIUM.textHeight(nameSize) + 3.0F;
+        Render2D.drawRoundedRect(x + 1.0F, ruleY,
+                Math.min(Fonts.SF_MEDIUM.getWidth(Info.NAME, nameSize), 72.0F), 2.5F, 1.25F,
+                Theme.getAccentColor());
+
+        float subSize = 10.0F;
+        Fonts.drawString(Fonts.SF_MEDIUM, Info.Version + "   ·   Minecraft 26.3", x + 1.0F,
+                ruleY + 9.0F, subSize, Theme.TEXT_MUTED);
+    }
+
+    private void renderTopLeftAccount() {
         String curUser = this.minecraft.getUser().getName();
-        float fontSize = 9.5F;
-        float textW = Fonts.SF_MEDIUM.getWidth(curUser, fontSize);
-        float iconSize = 14.0F;
+        float fontSize = 10.0F;
+        float iconSize = 16.0F;
         float paddingX = 8.0F;
-        float paddingY = 4.5F;
-        float totalW = iconSize + 6.0F + textW + (paddingX * 2);
-        float totalH = iconSize + (paddingY * 2);
+        float paddingY = 5.0F;
+        float totalW = paddingX * 2.0F + iconSize + 7.0F + Fonts.SF_MEDIUM.getWidth(curUser, fontSize);
+        float totalH = iconSize + paddingY * 2.0F;
 
-        float x = 12.0F;
-        float y = 12.0F;
+        float x = COL_X;
+        float y = 14.0F;
 
-        Render2D.drawRoundedRect(x, y, totalW, totalH, 6.0F, 0x66111218);
+        Render2D.drawRoundedRect(x, y, totalW, totalH, 8.0F, CARD_BG);
+        Render2D.drawRoundedOutline(x, y, totalW, totalH, 8.0F, 1.0F, CARD_OUTLINE);
 
         UUID uuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + curUser).getBytes(StandardCharsets.UTF_8));
         Identifier skin = DefaultPlayerSkin.get(uuid).body().texturePath();
-        Render2D.drawHead(skin, x + paddingX, y + paddingY, iconSize, 2.0F);
+        Render2D.drawHead(skin, x + paddingX, y + paddingY, iconSize, 3.0F);
 
-        Fonts.drawString(Fonts.SF_MEDIUM, curUser, x + paddingX + iconSize + 6.0F, y + paddingY + 2.5F, fontSize, Theme.TEXT_MAIN);
+        Fonts.drawString(Fonts.SF_MEDIUM, curUser, x + paddingX + iconSize + 7.0F,
+                y + (totalH - Fonts.SF_MEDIUM.textHeight(fontSize)) / 2.0F + 0.5F, fontSize, Theme.TEXT_MAIN);
     }
 
-    private void renderWallpaperButton(int screenWidth, int screenHeight, int mouseX, int mouseY) {
-        float btnW = 54.0F;
-        float btnH = 22.0F;
-        float btnX = screenWidth - btnW - 12.0F;
-        float btnY = screenHeight - btnH - 10.0F;
+    /**
+     * Фон меню: сплошная база с лёгким тёплым сдвигом вниз по цвету и мягкие акцентные
+     * засветы за карточками. Всё рисуется примитивами мода — картинок в этом экране нет.
+     */
+    private void drawBackdrop(int screenWidth, int screenHeight) {
+        Render2D.drawGradientRound(0.0F, 0.0F, screenWidth, screenHeight, 0.0F,
+                BACKDROP, BACKDROP,
+                ColorUtil.rgba(18, 13, 11, 255), ColorUtil.rgba(11, 11, 16, 255));
 
-        boolean hovered = !accountModalOpen && targetScreen == null && mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH;
-        int bgCol = hovered || bgSelectorOpen ? Theme.getAccentWithAlpha(120) : 0x66111218;
+        int accent = Theme.getAccentColor();
 
-        Render2D.drawRoundedRect(btnX, btnY, btnW, btnH, 5.0F, bgCol);
+        float top = menuTop();
+        float blockH = LOGO_H + CARD_PAD * 2.0F + MENU.length * BTN_H + (MENU.length - 1) * BTN_GAP;
+        Render2D.drawShadow(COL_X, top, COL_W, blockH, 12.0F, 30.0F,
+                ColorUtil.multiplyAlpha(accent, 0.13F));
 
-        Fonts.drawCenteredString(Fonts.SF_MEDIUM, Localization.get("Wallpaper"), btnX + (btnW / 2.0F), btnY + 6.0F, 9.5F, Theme.TEXT_MAIN);
-    }
-
-    private void renderWallpaperModal(GuiGraphicsExtractor extractor, int screenWidth, int screenHeight, int mouseX, int mouseY, float alpha) {
-        float modalW = 180.0F;
-        float modalH = 110.0F;
-        float modalX = screenWidth - modalW - 12.0F;
-        float modalY = screenHeight - modalH - 38.0F;
-
-        if (Theme.getBackgroundMode().equalsIgnoreCase("Blur")) {
-            Render2D.drawBlur(modalX, modalY, modalW, modalH, 10, ColorUtil.WHITE, 0.1f);
-        }
-
-        Render2D.drawRoundedRect(modalX, modalY, modalW, modalH, 7.0F, ColorUtil.multiplyAlpha(0xEE111218, alpha));
-        Fonts.drawString(Fonts.SF_MEDIUM, Localization.get("Wallpaper"), modalX + 12.0F, modalY + 6.0F, 10.5F, ColorUtil.multiplyAlpha(Theme.TEXT_MAIN, alpha));
-
-        float previewW = 124.0F;
-        float previewH = 70.0F;
-        float previewX = modalX + (modalW - previewW) / 2.0F;
-        float previewY = modalY + 20.0F;
-
-        Render2D.drawTexture(BACKGROUNDS[currentBgIndex], previewX, previewY, previewW, previewH, 0.0F, ColorUtil.multiplyAlpha(0xFFFFFFFF, alpha));
-
-        float arrowSize = 18.0F;
-        float arrowY = previewY + (previewH - arrowSize) / 2.0F;
-        float arrowCy = arrowY + (arrowSize / 2.0F);
-
-        float leftArrowX = previewX - arrowSize - 6.0F;
-        float leftCx = leftArrowX + (arrowSize / 2.0F);
-        boolean leftHover = mouseX >= leftArrowX && mouseX <= leftArrowX + arrowSize && mouseY >= arrowY && mouseY <= arrowY + arrowSize;
-        Render2D.drawRoundedRect(leftArrowX, arrowY, arrowSize, arrowSize, 4.0F, ColorUtil.multiplyAlpha(leftHover ? 0xFF2A2D3D : 0x551E202C, alpha));
-        int leftCol = ColorUtil.multiplyAlpha(leftHover ? ColorUtil.WHITE : Theme.TEXT_MUTED, alpha);
-        drawRotatedIcon(extractor, IconUse.UP, leftCx, arrowCy, 9.0F, -90.0F, leftCol);
-
-        float rightArrowX = previewX + previewW + 6.0F;
-        float rightCx = rightArrowX + (arrowSize / 2.0F);
-        boolean rightHover = mouseX >= rightArrowX && mouseX <= rightArrowX + arrowSize && mouseY >= arrowY && mouseY <= arrowY + arrowSize;
-        Render2D.drawRoundedRect(rightArrowX, arrowY, arrowSize, arrowSize, 4.0F, ColorUtil.multiplyAlpha(rightHover ? 0xFF2A2D3D : 0x551E202C, alpha));
-        int rightCol = ColorUtil.multiplyAlpha(rightHover ? ColorUtil.WHITE : Theme.TEXT_MUTED, alpha);
-        drawRotatedIcon(extractor, IconUse.UP, rightCx, arrowCy, 9.0F, 90.0F, rightCol);
-
-        String pageInfo = (currentBgIndex + 1) + " / " + BACKGROUNDS.length;
-        Fonts.drawCenteredString(Fonts.SF_MEDIUM, pageInfo, modalX + (modalW / 2.0F), previewY + previewH + 8.0F, 9.0F, ColorUtil.multiplyAlpha(Theme.TEXT_MUTED, alpha));
-    }
-
-    private void drawRotatedIcon(GuiGraphicsExtractor extractor, IconUse icon, float cx, float cy, float size, float angleDeg, int color) {
-        var pose = extractor.pose();
-        pose.pushMatrix();
-        pose.translate(cx, cy);
-        pose.rotate((float) Math.toRadians(angleDeg));
-        Fonts.drawIcon(icon, -size / 2.0F, -size / 2.0F, size, color);
-        pose.popMatrix();
+        Render2D.drawShadow(screenWidth * 0.74F, screenHeight * 0.16F, 96.0F, 96.0F, 48.0F, 72.0F,
+                ColorUtil.multiplyAlpha(accent, 0.07F));
     }
 
     private void renderAccountModal(int screenWidth, int screenHeight, int mouseX, int mouseY, float alpha) {
@@ -298,10 +266,9 @@ public class CustomTitleScreen extends Screen {
         float modalX = (screenWidth - modalW) / 2.0F;
         float modalY = (screenHeight - modalH) / 2.0F;
 
-        if (Theme.getBackgroundMode().equalsIgnoreCase("Blur")) {
-            Render2D.drawBlur(modalX, modalY, modalW, modalH, 10, ColorUtil.WHITE, 0.1f);
-        }
-        Render2D.drawRoundedRect(modalX, modalY, modalW, modalH, 8.0F, ColorUtil.multiplyAlpha(0xEE111218, alpha));
+        Render2D.drawRoundedRect(modalX, modalY, modalW, modalH, 8.0F, ColorUtil.multiplyAlpha(0xEE0A0B0F, alpha));
+        Render2D.drawRoundedOutline(modalX, modalY, modalW, modalH, 8.0F, 0.8F,
+                ColorUtil.multiplyAlpha(0xFF2D3D53, alpha));
 
         Fonts.drawString(Fonts.SF_MEDIUM, Localization.get("Account Manager"), modalX + 12.0F, modalY + 12.0F, 12.0F, ColorUtil.multiplyAlpha(Theme.TEXT_MAIN, alpha));
 
@@ -410,54 +377,6 @@ public class CustomTitleScreen extends Screen {
         int screenWidth = this.width;
         int screenHeight = this.height;
 
-        if (this.bgSelectorOpen) {
-            float modalW = 180.0F;
-            float modalH = 110.0F;
-            float modalX = screenWidth - modalW - 12.0F;
-            float modalY = screenHeight - modalH - 38.0F;
-
-            if (mouseX < modalX || mouseX > modalX + modalW || mouseY < modalY || mouseY > modalY + modalH) {
-                float btnW = 54.0F;
-                float btnH = 22.0F;
-                float btnX = screenWidth - btnW - 12.0F;
-                float btnY = screenHeight - btnH - 10.0F;
-                if (!(mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH)) {
-                    this.bgSelectorOpen = false;
-                }
-            } else {
-                float previewW = 124.0F;
-                float previewH = 70.0F;
-                float previewX = modalX + (modalW - previewW) / 2.0F;
-                float previewY = modalY + 20.0F;
-                float arrowSize = 18.0F;
-                float arrowY = previewY + (previewH - arrowSize) / 2.0F;
-
-                float leftArrowX = previewX - arrowSize - 6.0F;
-                if (mouseX >= leftArrowX && mouseX <= leftArrowX + arrowSize && mouseY >= arrowY && mouseY <= arrowY + arrowSize) {
-                    currentBgIndex = (currentBgIndex - 1 + BACKGROUNDS.length) % BACKGROUNDS.length;
-                    saveWallpaper();
-                    return true;
-                }
-
-                float rightArrowX = previewX + previewW + 6.0F;
-                if (mouseX >= rightArrowX && mouseX <= rightArrowX + arrowSize && mouseY >= arrowY && mouseY <= arrowY + arrowSize) {
-                    currentBgIndex = (currentBgIndex + 1) % BACKGROUNDS.length;
-                    saveWallpaper();
-                    return true;
-                }
-                return true;
-            }
-        }
-
-        float bgBtnW = 54.0F;
-        float bgBtnH = 22.0F;
-        float bgBtnX = screenWidth - bgBtnW - 12.0F;
-        float bgBtnY = screenHeight - bgBtnH - 10.0F;
-        if (!accountModalOpen && mouseX >= bgBtnX && mouseX <= bgBtnX + bgBtnW && mouseY >= bgBtnY && mouseY <= bgBtnY + bgBtnH) {
-            this.bgSelectorOpen = !this.bgSelectorOpen;
-            return true;
-        }
-
         if (this.accountModalOpen) {
             float modalW = 270.0F;
             float modalH = 310.0F;
@@ -535,22 +454,18 @@ public class CustomTitleScreen extends Screen {
             return true;
         }
 
-        float btnW = 160.0F;
-        float btnH = 28.0F;
-        float spacing = 7.0F;
-        float totalH = (5 * btnH) + (4 * spacing);
-        float startX = screenWidth / 2.5f;
-        float startY = (screenHeight - totalH) / 2.0F + 10.0F;
+        float clickX = COL_X + CARD_PAD;
+        float clickW = COL_W - CARD_PAD * 2.0F;
+        float firstY = menuTop() + LOGO_H + CARD_PAD;
 
-        for (int i = 0; i < 5; i++) {
-            float y = startY + i * (btnH + spacing);
-            if (mouseX >= startX && mouseX <= startX + btnW && mouseY >= y && mouseY <= y + btnH) {
+        for (int i = 0; i < MENU.length; i++) {
+            float y = firstY + i * (BTN_H + BTN_GAP);
+            if (mouseX >= clickX && mouseX <= clickX + clickW && mouseY >= y && mouseY <= y + BTN_H) {
                 switch (i) {
                     case 0 -> switchScreen(new SelectWorldScreen(this));
                     case 1 -> switchScreen(new JoinMultiplayerScreen(this));
                     case 2 -> {
                         this.accountModalOpen = true;
-                        this.bgSelectorOpen = false;
                         this.addAccountQuery = "";
                     }
                     case 3 -> switchScreen(new OptionsScreen(this, this.minecraft.options));
@@ -582,11 +497,6 @@ public class CustomTitleScreen extends Screen {
     @Override
     public boolean keyPressed(KeyEvent event) {
         int keyCode = event.key();
-
-        if (this.bgSelectorOpen && (event.isEscape() || keyCode == InputConstants.KEY_ESCAPE)) {
-            this.bgSelectorOpen = false;
-            return true;
-        }
 
         if (this.accountModalOpen) {
             if (event.isEscape() || keyCode == InputConstants.KEY_ESCAPE) {

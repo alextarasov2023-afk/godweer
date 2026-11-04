@@ -69,7 +69,9 @@ public final class ModalShell {
 
     public static void drawWindow(Window r, String title, String hint, float alpha,
                                   double mouseX, double mouseY) {
-        Render2D.drawBlur(r.x(), r.y(), r.w(), r.h(), 8.0F, ColorUtil.multiplyAlpha(0xFF101216, alpha), alpha);
+        Render2D.drawRoundedRect(r.x(), r.y(), r.w(), r.h(), 8.0F, ColorUtil.multiplyAlpha(0xFF0A0B0F, alpha));
+        Render2D.drawRoundedOutline(r.x(), r.y(), r.w(), r.h(), 8.0F, 0.9F,
+                ColorUtil.multiplyAlpha(0xFF2D3D53, alpha));
 
         Fonts.drawString(Fonts.SF_MEDIUM, title, r.x() + 14.0F, r.y() + 12.0F, 10.0F,
                 ColorUtil.multiplyAlpha(Theme.TEXT_MAIN, alpha));

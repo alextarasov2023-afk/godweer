@@ -19,10 +19,11 @@ import net.minecraft.world.entity.npc.villager.Villager;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemUseAnimation;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
-import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
 import pub.godweer.rotation.Angle;
 import pub.godweer.rotation.RayTraceUtils;
@@ -64,9 +65,13 @@ public class KillAura extends Module {
     public static final String ROT_SMOOTH = "Smooth";
     public static final String ROT_LEGIT = "Legit";
     public static final String ROT_SPOOKY = "SpookyTime";
+    public static final String ROT_TRIGGER = "Trigger";
 
     public static final String MOVE_FREE = "Free";
     public static final String MOVE_TARGETED = "Targeted";
+
+    public static final String SPRINT_LEGIT = "Legit";
+    public static final String SPRINT_HVH = "HvH";
 
     private static final EquipmentSlot[] ARMOR_SLOTS = {
             EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET
@@ -81,6 +86,9 @@ public class KillAura extends Module {
     private static final float LEGIT_DEADZONE = 0.15F;
     private static final float LEGIT_JITTER = 0.10F;
     private static final float LEGIT_LEAD = 0.25F;
+    // Пол шага у самой цели: кривая с falloff 14° и степенью 1.4 даёт на остатке в 3°
+    // сотые градуса за тик, то есть последние метры угол сводится за секунду.
+    private static final float LEGIT_MIN_STEP = 0.75F;
 
     // Профиль SpookyTime: целевой угол никогда не даёт прицелу сойтись в ноль — к нему
     // всё время прибавляется низкая волна и высокочастотный тремор (см. spookyWobble).
@@ -117,6 +125,9 @@ public class KillAura extends Module {
     private static final double SWITCH_MOMENTUM_ANGLE = 25.0D;
     // Сколько тиков можно ждать сброса серверного спринта, прежде чем бить без крита.
     private static final int SPRINT_WAIT_MAX_TICKS = 6;
+    // Суммарный потолок остановок Legit-сброса в одном цикле удара: если STOP_SPRINTING
+    // так и не ушёл на сервер, дальше бьём как есть — молчание хуже удара без крита.
+    private static final int SPRINT_STOP_TOTAL_MAX = 6;
     // Столько тиков без единой видимой точки — и липкая цель меняются местами.
     private static final int AIM_BLOCKED_TICKS = 3;
     // Сколько тиков держим уже готовый удар в ожидании окна крита, прежде чем бить
@@ -140,8 +151,17 @@ public class KillAura extends Module {
     private static final int USE_HINT_TICKS = 40;
     // Дозволы по высоте силуэта для проверки видимости: грудь, макушка, ноги.
     private static final double[] AIM_HEIGHTS = {0.65D, 0.9D, 0.3D};
-    // Заряд, при котором крит ещё засчитывается полной силы (11/12 тика из 12).
-    private static final float CRIT_CHARGE = 0.848F;
+    // Заряд, при котором крит ещё засчитывается полной силы: в 26.3 Player.attack
+    // проверяет getAttackStrengthScale(0.5F) > 0.9 (11-й тик меча из 12.5).
+    private static final float CRIT_CHARGE = 0.85F;
+    // Минимальный заряд ЛЮБОГО удара (шкала 0.0F — та, по которой сервер масштабирует
+    // урон). Ниже этого бить просто бессмысленно: удар выходит в половину силы.
+    private static final float MIN_CHARGE = 0.85F;
+    // Окно задержки между ударами: 500-550 мс. Тиковая сетка 50 мс, поэтому 470-570
+    // целиком покрывается этими двумя полками, а сам выбор случайный — фиксированный
+    // интервал античит читает как след софта.
+    private static final int MIN_DELAY_TICKS = 10;
+    private static final int MAX_DELAY_TICKS = 11;
     // Полка серверной reach-проверки: дистанция считается от глаз до точки в хитбоксе,
     // ванильный порог ~3.0. Всё, что выше, античит читает как Reach-Hitbox.
     private static final float MAX_SAFE_REACH = 2.92F;
@@ -151,8 +171,10 @@ public class KillAura extends Module {
     private final SliderSetting attackReach = slider("Attack Reach", 3.2f, 1.0f, 6.0f, 0.1f);
     // Дальность наводки: захват и ротация работают дальше, чем бьёт удар.
     private final SliderSetting aimRange = slider("Aim Range", 4.5f, 1.5f, 8.0f, 0.1f);
-    // На элитрах своя дальность захвата: скорость выше, цель нужно брать заранее и издалека.
-    private final SliderSetting glideAimRange = slider("Glide Aim Range", 8.0f, 1.5f, 16.0f, 0.5f);
+    // Булава: наводка на 8-12 блоков.
+    private final SliderSetting maceAimRange = slider("Mace Aim Range", 10.0f, 8.0f, 12.0f, 0.1f);
+    // На элитрах своя дальность захвата: 30-100 блоков.
+    private final SliderSetting glideAimRange = slider("Glide Aim Range", 30.0f, 30.0f, 100.0f, 5.0f);
     // 360 = цель берётся в любом направлении, включая за спиной.
     private final SliderSetting fov = slider("FOV", 360.0f, 15.0f, 360.0f, 5.0f);
     // Пауза перед поиском НОВОЙ цели широким сканом — после того, как прошлая отпущена.
@@ -180,7 +202,7 @@ public class KillAura extends Module {
     private final HeaderSetting rotationHeader = header("Rotation");
     // Профиль каждого режима зашит в константы: в GUI остаются только те ручки,
     // которые реально крутят в бою, и только от своего режима.
-    private final ModeSetting rotation = mode("Rotation", ROT_SMOOTH, ROT_SMOOTH, ROT_LEGIT, ROT_SPOOKY);
+    private final ModeSetting rotation = mode("Rotation", ROT_SMOOTH, ROT_SMOOTH, ROT_LEGIT, ROT_SPOOKY, ROT_TRIGGER);
 
     // --- Smooth: тихий серверный угол ---
     // Пол потолка скорости серверного угла; выше остатка угла шаг растёт сам
@@ -196,17 +218,10 @@ public class KillAura extends Module {
     private final SliderSetting strength = slider("Strength", 55.0f, 5.0f, 100.0f, 1.0f)
             .visible(this::isLegit);
     // Потолок скорости камеры, градусов за тик
-    private final SliderSetting maxSpeed = slider("Max Speed", 7.0f, 1.0f, 30.0f, 0.5f)
+    private final SliderSetting maxSpeed = slider("Max Speed", 10.0f, 1.0f, 30.0f, 0.5f)
             .visible(this::isLegit);
 
-    private final HeaderSetting timingHeader = header("Hit Timing");
-    // Кулдаун между ударами в миллисекундах, но шаг = 50 мс, то есть ровно тик:
-    // 400/450/500/550 => 8/9/10/11 тиков. Гейт по счётчику тиков, а не по wall-clock:
-    // иначе удар уходил на первом тике ПОСЛЕ истечения окна и окно раздувалось.
-    private final SliderSetting attackDelay = slider("Attack Delay", 450.0f, 350.0f, 550.0f, 50.0f);
-    // 100% = удар ровно на полном заряде. Ниже — удар раньше, ценой урона: сервер
-    // масштабирует урон по шкале заряда. Для крита этот же пол заменяет 84.8%.
-    private final SliderSetting minCharge = slider("Min Charge", 90.0f, 60.0f, 100.0f, 1.0f);
+    // --- сброс спринта под крит
 
     private final HeaderSetting critHeader = header("Criticals");
     // Режим Smart (бить и на земле) убран: удар выпускается только когда падение
@@ -225,19 +240,25 @@ public class KillAura extends Module {
     private final CheckBox critOnlyOnJump = checkbox("Crit Only On Jump", true);
 
     // --- сброс спринта под крит ---
+    // Оба режима гасят только шаг вперёд: отпущенный forward сам роняет спринт
+    // (hasForwardImpulse == false -> ванильный STOP_SPRINTING), флаг не подменяем.
+    // Legit (по умолчанию): только в падении, остановки 1-2 случайных тика до удара
+    // и 1-2 после; на земле и на подъёме прыжка ввод не трогаем — крита там всё равно нет.
+    // HvH: одно отжатие W через Stop After Ticks тиков после начала падения. Ничего
+    // не держим, игроку не мешаем: ни на земле, ни на остальной фазе полёта.
     private final HeaderSetting sprintHeader = header("Sprint Reset");
-    private final ModeSetting sprintReset = mode("Sprint Reset", "Legit", "None", "Legit", "Fast");
-    // Нижняя гарантия: столько тиков ввод держим без forward/sprint обязательно
-    private final SliderSetting sprintMinStopTicks = slider("Min Stop Ticks", 2.0f, 1.0f, 4.0f, 1.0f)
-            .visible(() -> !sprintReset.getValue().equals("None"));
-    // Потолок: дольше не стоим, даже если сервер всё ещё считает нас бегущими
-    private final SliderSetting sprintMaxStopTicks = slider("Max Stop Ticks", 4.0f, 1.0f, 8.0f, 1.0f)
-            .visible(() -> !sprintReset.getValue().equals("None"));
+    private final ModeSetting sprintReset = mode("Sprint Reset", SPRINT_LEGIT, SPRINT_LEGIT, SPRINT_HVH);
+    // Через сколько тиков падения отжать W
+    private final SliderSetting sprintStopAfterTicks = slider("Stop After Ticks", 2.0f, 1.0f, 8.0f, 1.0f)
+            .visible(() -> sprintReset.is(SPRINT_HVH));
 
     private final HeaderSetting extraHeader = header("Settings");
     private final CheckBox pauseWhileUsing = checkbox("Pause while Using", true);
+    private final CheckBox pauseWhileEating = checkbox("Pause while Eating", true);
     private final CheckBox throughWalls = checkbox("Through Walls", false);
     private final CheckBox axeShieldBreak = checkbox("Axe Shield Break", false);
+    private final SliderSetting shieldReleaseTicks = slider("Shield Release Ticks", 2.0f, 1.0f, 5.0f, 1.0f);
+    private final SliderSetting shieldHoldTicks = slider("Shield Hold Released Ticks", 2.0f, 1.0f, 5.0f, 1.0f);
     // Показывать в уведомления, чем именно аура завислась, пока она сама себя чинит.
     // Сбросы работают и с выключенным пунктом — галка только про текст на экране.
     private final CheckBox watchDogNotify = checkbox("Watchdog Notify", true);
@@ -271,6 +292,7 @@ public class KillAura extends Module {
     private boolean useHintShown = false;
 
     private int shieldTicks = 0;
+    private int shieldReleaseTimer = 0;
     private int axeStage = 0;
     private int previousSlot = -1;
 
@@ -289,10 +311,22 @@ public class KillAura extends Module {
     // Сколько тиков подряд зажата клавиша прыжка без падения — ждём крит.
     private int jumpHoldTicks = 0;
 
-    // Сколько тиков ещё держим ввод без forward/sprint (легитный сброс спринта).
-    // Снимаем не «N тиков», а ровно до тех пор, пока сервер не перестал считать нас
-    // бегущими: wasSprinting == false означает, что STOP_SPRINTING уже ушёл в канал.
+    // Отжатие W (HvH): 1 = гасим forward этим тиком и больше ничего. Держать его
+    // дольше значит отнимать у игрока воздух и скорость — сброс ровно один за падение.
     private int sprintReleaseTicks = 0;
+    // HvH: бежим ли вообще в этом падении и было ли уже отжатие.
+    private boolean sprintResetNeeded = false;
+    private boolean sprintResetDone = false;
+
+    // --- остановки спринта Legit: 1-2 случайных тика до удара (PRE) и 1-2 после (POST).
+    // sprintStopTotal — суммарный отстой текущего цикла удара: если серверный флаг
+    // спринта не гаснет, окна повторяются, но не дольше SPRINT_STOP_TOTAL_MAX.
+    private int sprintStopTicks = 0;
+    private StopPhase sprintStopPhase = StopPhase.NONE;
+    private int sprintStopTotal = 0;
+
+    /** Фаза остановки Legit-сброса: до удара, после удара, нет. */
+    private enum StopPhase { NONE, PRE, POST }
 
     // --- состояние ротации
     // Угол, который сервер УЖЕ получил: пакет движения этого тика уходит после PRE,
@@ -305,6 +339,11 @@ public class KillAura extends Module {
     private float velPitch = 0.0F;
     private float driftYaw = 0.0F;
     private float driftPitch = 0.0F;
+    // Остаток шага, который не влез в квант GCD. Квант округляется вниз, и без накопителя
+    // камера останавливается, не доходя до точки, — шаг меньше половины кванта навсегда
+    // даёт ноль. Остаток копится и уходит тем же квантом на следующем тике.
+    private float residualYaw = 0.0F;
+    private float residualPitch = 0.0F;
     // SpookyTime: отфильтрованный потолок свода по осям. Тянется к случайному значению
     // и обнуляется, пока текущий серверный угол уже попадает в цель.
     private float spookySpeedYaw = 0.0F;
@@ -322,7 +361,7 @@ public class KillAura extends Module {
 
     /** Не Legit и не SpookyTime — тихая серверная ротация (и старый «Human» из конфига тоже). */
     public boolean isSmooth() {
-        return !isLegit() && !isSpooky();
+        return !isLegit() && !isSpooky() && !isTrigger();
     }
 
     public boolean isLegit() {
@@ -332,6 +371,11 @@ public class KillAura extends Module {
     /** Дышащая наводка: целевой угол всегда смещён волной, а свод то замирает, то рвётся. */
     public boolean isSpooky() {
         return rotation.is(ROT_SPOOKY);
+    }
+
+    /** Trigger: без ротации и коррекции — бьём только по цели под прицелом. */
+    public boolean isTrigger() {
+        return rotation.is(ROT_TRIGGER);
     }
 
     /**
@@ -344,11 +388,22 @@ public class KillAura extends Module {
     }
 
     /**
+     * Активен ли отстой forward: один тик планового сброса в HvH или окно остановки
+     * в Legit. По нему KeyboardInputMixin гасит шаг вперёд, а Sprint-модуль перестаёт
+     * форсить спринт за игрока — иначе он включает его обратно в этом же тике.
+     */
+    public boolean sprintHoldActive() {
+        return isEnabled() && (sprintReleaseTicks > 0 || sprintStopTicks > 0);
+    }
+
+    /**
      * Дальность наводки: на элитрах своя — там и скорость другая, и цель надо брать
      * заранее, пока она не прошла мимо.
      */
     private double aimRangeNow(LocalPlayer player) {
-        return player.isFallFlying() ? glideAimRange.get() : aimRange.get();
+        if (player.isFallFlying()) return glideAimRange.get();
+        if (player.getMainHandItem().is(Items.MACE)) return maceAimRange.get();
+        return aimRange.get();
     }
 
     @Override
@@ -361,6 +416,11 @@ public class KillAura extends Module {
         blockedBy = "none";
         shieldTicks = 0;
         sprintReleaseTicks = 0;
+        sprintResetNeeded = false;
+        sprintResetDone = false;
+        sprintStopTicks = 0;
+        sprintStopPhase = StopPhase.NONE;
+        sprintStopTotal = 0;
         sprintWaitTicks = 0;
         fallingTicks = 0;
         blindTicks = 0;
@@ -405,12 +465,19 @@ public class KillAura extends Module {
         noCritTicks = 0;
         jumpHoldTicks = 0;
         sprintReleaseTicks = 0;
+        sprintResetNeeded = false;
+        sprintResetDone = false;
+        sprintStopTicks = 0;
+        sprintStopPhase = StopPhase.NONE;
+        sprintStopTotal = 0;
         switchBlockedUntilMs = 0L;
         engagedTicks = 0;
         velYaw = 0.0F;
         velPitch = 0.0F;
         driftYaw = 0.0F;
         driftPitch = 0.0F;
+        residualYaw = 0.0F;
+        residualPitch = 0.0F;
         sentYaw = 0.0F;
         sentPitch = 0.0F;
         // Только в прошлый раз: «плавно отпустить» нельзя — возвращать камеру некуда,
@@ -427,6 +494,12 @@ public class KillAura extends Module {
 
         tickTimers();
         localTick++;
+
+        // Окно остановки Legit-сброса тикает вниз независимо от гейтов: истёкшее PRE
+        // открывает удар этим тиком, истёкший POST просто возвращает ввод.
+        if (sprintStopTicks > 0 && --sprintStopTicks == 0) {
+            sprintStopPhase = StopPhase.NONE;
+        }
 
         LocalPlayer player = player();
         if (player != lastPlayer) {
@@ -457,10 +530,23 @@ public class KillAura extends Module {
         boolean falling = player.fallDistance > 0.0F && !player.onGround();
         fallingTicks = falling ? fallingTicks + 1 : 0;
 
+        // HvH: счёт падения для планового отжатия W. Само отжатие ставится ниже, у
+        // гейта удара: взведённое раньше сброс сжигался тиком, когда удар ещё не готов.
+        if (sprintReset.is(SPRINT_HVH)) {
+            if (!falling) {
+                sprintResetNeeded = false;
+                sprintResetDone = false;
+            } else {
+                sprintResetNeeded = isMovingForward(player) && isServerSprinting(player);
+            }
+        }
+
         LivingEntity hit = pickTarget(player, eyes);
         if (hit == null) {
             blockedBy = "no target";
             silentTicks = 0;
+            sprintWaitTicks = 0;
+            sprintReleaseTicks = 0;
             releaseRotation();
             hoverTarget = null;
             shieldTicks = 0;
@@ -478,15 +564,37 @@ public class KillAura extends Module {
 
         rotate(player, eyes, target);
 
-        // Отстой спринта армимся на подъёме прыжка, независимо от окна удара: флаг
-        // должен погаснуть К ТОМУ моменту, как удар будет можно, а не начинаться в
-        // нём — иначе STOP_SPRINTING не успевает дойти до сервера и крит теряется.
-        if (!falling && !player.onGround()) {
-            armSprintReleaseOnRise(player);
-        }
-
         if (isPausedByUsing()) {
             blockedBy = "use";
+            return;
+        }
+        if (isPausedByEating()) {
+            blockedBy = "eating";
+            return;
+        }
+
+        // Щит: перед ударом отжимаем щит на X тиков, затем держим отжатым Y тиков.
+        if (shieldReleaseTimer > 0) {
+            shieldReleaseTimer--;
+            if (player.isUsingItem() && player.getUseItem().is(Items.SHIELD)) {
+                mc.gameMode.releaseUsingItem(player);
+            }
+            if (shieldReleaseTimer == 0) {
+                shieldReleaseTimer = -Math.round(shieldHoldTicks.get());
+            }
+            blockedBy = "shield release";
+            return;
+        }
+        if (shieldReleaseTimer < 0) {
+            shieldReleaseTimer++;
+            if (player.isUsingItem() && player.getUseItem().is(Items.SHIELD)) {
+                mc.gameMode.releaseUsingItem(player);
+            }
+        }
+        if (player.isUsingItem() && player.getUseItem().is(Items.SHIELD)) {
+            mc.gameMode.releaseUsingItem(player);
+            shieldReleaseTimer = Math.round(shieldReleaseTicks.get());
+            blockedBy = "shield release";
             return;
         }
 
@@ -525,14 +633,20 @@ public class KillAura extends Module {
         }
 
         boolean exception = isCritException(player);
-        // Зажатый прыжок при исключениях (элитры, вода, лестница, пассажир) крита не даёт
+        // Прыжок при исключениях (элитры, вода, лестница, пассажир) крита не даёт
         // в принципе, поэтому условие работает только там, где падение возможно.
+        // В воздухе до падения удара нет вообще: подъём и пик крит не засчитывают,
+        // а потраченный на такой удар кулдаун съедает всё окно падения. Ждём спуск
+        // и при зажатой клавише прыжка, и при тапнутом прыжке; дедлайн оставляем —
+        // залипшая клавиша не должна запирать ауру без удара совсем.
         boolean jumpHeld = critOnlyOnJump.getValue() && !exception && isJumpHeld();
-        jumpHoldTicks = (jumpHeld && !falling) ? jumpHoldTicks + 1 : 0;
+        boolean rising = !exception && !falling && !player.onGround();
+        boolean waitForFall = rising || (jumpHeld && !falling);
+        jumpHoldTicks = waitForFall ? jumpHoldTicks + 1 : 0;
 
         // always-on: падение без бега вперёд — окно крита открыто прямо сейчас, ждать в
         // нём больше нечего. Обязательные условия удара (кулдаун readyTick, наведение с
-        // дистанцией, линия видимости, откат предмета, заряд) остаются гейтами ниже —
+        // дистанцией, линия видимости, заряд) остаются гейтами ниже —
         // здесь снимается только ожидание «созревания» падения и окна крита.
         boolean critOpen = !exception && falling && !player.isSprinting() && !isServerSprinting(player);
 
@@ -547,8 +661,8 @@ public class KillAura extends Module {
                     blockedBy = "crit fall";
                     return;
                 }
-            } else if (jumpHeld && jumpHoldTicks < JUMP_HOLD_MAX_TICKS) {
-                // Игрок держит прыжок — значит он собирается (или уже) падать, и обычный
+            } else if (waitForFall && jumpHoldTicks < JUMP_HOLD_MAX_TICKS) {
+                // Игрок в прыжке — значит он собирается (или уже) падать, и обычный
                 // удар в этой паузе только сжигает кри-цикл. Ждём, но с дедлайном.
                 noCritTicks = 0;
                 blockedBy = "jump hold";
@@ -566,39 +680,83 @@ public class KillAura extends Module {
             noCritTicks = 0;
         }
 
-        ItemStack mainHand = player.getMainHandItem();
-        if (!mainHand.isEmpty() && player.getCooldowns().isOnCooldown(mainHand)) {
-            blockedBy = "item cooldown";
-            return;
-        }
-
-        // Заряд: в падении (крит) достаточно CRIT_CHARGE, на земле и при исключениях —
-        // Min Charge. Min Charge ниже 84.8% ускоряет и критический удар тоже: он снимает
-        // тик-другой с паузы ценой части урона (сервер масштабирует урон по заряду).
-        float required = (falling && !exception)
-                ? Math.min(CRIT_CHARGE, minCharge.get() / 100.0F)
-                : minCharge.get() / 100.0F;
+        // Заряд: крит в 26.3 требует getAttackStrengthScale(0.5F) > 0.9 (Player.attack),
+        // поэтому в падении ждём именно эту шкалу. Меч с задержкой удара 500 мс даёт
+        // к моменту удара 0.84 — удар выходит обычным, крит невозможен в принципе.
+        // На земле и при исключениях — тот же минимум 85% по шкале 0.0F, по которой
+        // сервер масштабирует урон: недобитый заряд не «ускоряет» удар ценой урона,
+        // а вообще не выпускает его.
+        float required = MIN_CHARGE;
         boolean bypassCharge = axeStage == 1;
-        if (!bypassCharge && player.getAttackStrengthScale(0.0F) < required) {
-            blockedBy = "charge";
-            return;
+        // Булава: бьём только при кулдауне >0% и падении от 1.5 блоков.
+        if (player.getMainHandItem().is(Items.MACE)) {
+            if (player.fallDistance < 1.5F) {
+                blockedBy = "mace fall";
+                return;
+            }
+            if (player.getAttackStrengthScale(0.0F) <= 0.0F) {
+                blockedBy = "mace cooldown";
+                return;
+            }
+        }
+        if (!bypassCharge) {
+            boolean charged = (falling && !exception)
+                    ? player.getAttackStrengthScale(0.5F) > CRIT_CHARGE
+                    : player.getAttackStrengthScale(0.0F) >= required;
+            if (!charged) {
+                blockedBy = "charge";
+                return;
+            }
         }
 
-        // --- сброс спринта под крит: бьём ровно в том тику, где сервер перестал
-        // считать нас бегущими. Ждать «N тиков отстоя» не нужно вовсе.
-        // Выключенный сброс не должен задерживать удар вообще.
-        if (!sprintReset.getValue().equals("None") && falling && isServerSprinting(player)) {
-            keepSprintReleaseArmed(player);
-            // Ожидание не должно быть вечным: если флаг не гаснет (ввод уже отпущен,
-            // серверный STOP не уходит), молчание хуже удара без крита.
-            if (++sprintWaitTicks < SPRINT_WAIT_MAX_TICKS) {
-                blockedBy = "sprint reset";
-                return;
+        // --- HvH: плановое отжатие W — один тик, один раз за падение и не раньше, чем
+        // через Stop After Ticks тиков после его начала. Взводится только здесь, когда
+        // удар уже готов: взведённое раньше сброс сгорал тиком и крит терялся. Ни
+        // заморозки, ни стояния — ждёт сам удар, а не ноги игрока. Не дождались флага —
+        // бьём как есть, молчание хуже удара без крита.
+        if (sprintReset.is(SPRINT_HVH) && falling && sprintResetNeeded) {
+            if (!sprintResetDone && fallingTicks >= (int) sprintStopAfterTicks.get()) {
+                sprintReleaseTicks = 1;
+                sprintResetDone = true;
+            }
+            if (!sprintResetDone || isServerSprinting(player)) {
+                if (++sprintWaitTicks < SPRINT_WAIT_MAX_TICKS) {
+                    blockedBy = "sprint reset";
+                    return;
+                }
             }
         }
         sprintWaitTicks = 0;
 
+        // --- Legit: только в падении, остановки 1-2 случайных тика до удара и 1-2
+        // после. Никакого setSprinting(false): KeyboardInputMixin гасит только ходьбу
+        // вперёд — стрейфы, прыжок и физика живут, сервер видит не-спринт по STOP_SPRINTING.
+        boolean postStop = false;
+        if (sprintReset.is(SPRINT_LEGIT) && falling) {
+            boolean sprinting = player.isSprinting() || isServerSprinting(player);
+            if (sprintStopPhase == StopPhase.PRE) {
+                // Окно до удара ещё не истекло — ввод уже погашен, ждём.
+                blockedBy = "sprint reset";
+                return;
+            }
+            if (sprinting && sprintStopTotal < SPRINT_STOP_TOTAL_MAX) {
+                sprintStopPhase = StopPhase.PRE;
+                sprintStopTicks = randomStopTicks();
+                sprintStopTotal += sprintStopTicks;
+                blockedBy = "sprint reset";
+                return;
+            }
+            // Дедлайн: флаг сервера не гаснет — бьём как есть, молчание хуже.
+            postStop = sprinting || sprintStopTotal > 0;
+        }
+
         attack(player, gameTime);
+
+        if (postStop) {
+            sprintStopPhase = StopPhase.POST;
+            sprintStopTicks = randomStopTicks();
+        }
+        sprintStopTotal = 0;
     }
 
     /**
@@ -668,7 +826,7 @@ public class KillAura extends Module {
     private boolean stuckByState() {
         if (blockedBy.equals("aim")) return silentTicks >= SILENT_AIM_TICKS;
         return switch (blockedBy) {
-            case "cooldown", "charge", "item cooldown", "sprint reset" -> true;
+            case "cooldown", "charge", "sprint reset" -> true;
             default -> false;
         };
     }
@@ -685,12 +843,9 @@ public class KillAura extends Module {
         // стояния только отодвигают следующий прыжок и весь кри-цикл.
         sprintReleaseTicks = 0;
 
-        // Локальную симуляцию удара считаем без спринта, чтобы клиентские критовые
-        // партиклы совпадали с серверным результатом.
-        boolean sprinting = player.isSprinting();
-        player.setSprinting(false);
+        // Флаг спринта не подменяем ни в одном режиме: не-спринт на сервере уже
+        // сделан отпущенным forward, а ручной setSprinting — читаемый след софта.
         gameMode().attack(player, target);
-        player.setSprinting(sprinting);
 
         SwingAnimation swingAnim = player.getMainHandItem().getAttackAnimation();
         player.swing(InteractionHand.MAIN_HAND, swingAnim, false);
@@ -699,16 +854,19 @@ public class KillAura extends Module {
     }
 
     /**
-     * Убираем forward/sprint из ввода на время отстоя. Гасим и moveVector: keyPresses
-     * уходит в пакет ввода и в логику спринта, а реальную остановку сервер видит только
-     * по пакетам движения, т.е. по погашенному moveVector.
+     * Коррекция движения считается ДО отстоя спринта и после неё уже ничего не
+     * разгоняем: Free — «идёшь куда смотришь» (компенсацию клавиш делает
+     * KeyboardInputMixin), Targeted — «вжимаешься в цель»: клавиши пересчитываются
+     * от серверного угла так, чтобы вектор тянул ровно в таргет. Работает в Smooth
+     * и SpookyTime — там угол идёт на сервер через хендлер, а камера остаётся
+     * у игрока. Legit не трогает вовсе: он доворачивает саму камеру.
      * <p>
-     * Коррекция движения считается ДО отстоя и после неё уже ничего не разгоняем:
-     * Free — «идёшь куда смотришь» (компенсацию клавиш делает KeyboardInputMixin),
-     * Targeted — «вжимаешься в цель»: клавиши пересчитываются от серверного угла так,
-     * чтобы вектор тянул ровно в таргет. Работает в Smooth и SpookyTime — там угол
-     * идёт на сервер через хендлер, а камера остаётся у игрока. Legit не трогает
-     * вовсе: он доворачивает саму камеру, серверный угол и есть угол камеры.
+     * Само отжатие forward делает KeyboardInputMixin по {@link #sprintHoldActive()}:
+     * там оно срабатывает даже если любой другой слушатель ввода кинет исключение.
+     * Гасим только шаг вперёд: moveVector — то, что реально читает ваниль
+     * (hasForwardImpulse), и с нулевым y она сама роняет спринт и отправляет
+     * STOP_SPRINTING. Клавишу спринта и флаг не трогаем — сброс и есть отпущенный
+     * forward; стрейфы, назад, прыжок и физика живут.
      */
     @EventTarget
     public void onInput(PlayerInputEvent event) {
@@ -716,25 +874,6 @@ public class KillAura extends Module {
 
         if (usesServerRotation() && movement.is(MOVE_TARGETED) && target != null && RotationHandler.isActive()) {
             MoveUtility.fixMovementFocus(event, target);
-        }
-
-        if (sprintReleaseTicks <= 0) return;
-
-        Input current = event.getKeyPresses();
-        if (current == null || (!current.forward() && !current.sprint())) return;
-
-        event.setKeyPresses(new Input(
-                false,
-                current.backward(),
-                current.left(),
-                current.right(),
-                current.jump(),
-                current.shift(),
-                false
-        ));
-        Vec2 move = event.getMoveVector();
-        if (move != null && move.y > 0.0F) {
-            event.setMoveVector(new Vec2(move.x, 0.0F));
         }
     }
 
@@ -744,7 +883,14 @@ public class KillAura extends Module {
         boolean smooth = isSmooth();
         // Хендлер живёт только у режимов серверного угла; в Legit он мешает.
         if (!usesServerRotation() && RotationHandler.isActive()) {
-            RotationHandler.disengage("Smooth");
+            // Legit крутит саму камеру, поэтому живой хендлер там вреден: пока он не
+            // отпущен, он сам пишет setYRot, держит перехват мыши, а sendYaw даёт старый
+            // серверный угол — доворот и гейт удара считаются не от того, куда смотрит
+            // игрок. Trigger камерой не владеет вовсе, ему нужен плавный возврат угла.
+            RotationHandler.disengage(isLegit() ? "Instant" : "Smooth");
+        }
+        if (isTrigger()) {
+            return;
         }
         if (isSpooky()) {
             rotateSpookyTime(player, eyes, entity);
@@ -799,11 +945,9 @@ public class KillAura extends Module {
 
         // Пропорциональный шаг у цели ползёт по десятым градуса. Для «быстро и плавно»
         // держим пол, но не больше четверти остатка угла — иначе перелёт и звон на месте.
-        if (smooth) {
-            float floor = Math.min(SMOOTH_MIN_STEP, error * 0.25F);
-            velYaw = floorStep(velYaw, deltaYaw, floor);
-            velPitch = floorStep(velPitch, deltaPitch, floor);
-        }
+        float floor = Math.min(smooth ? SMOOTH_MIN_STEP : LEGIT_MIN_STEP, error * 0.25F);
+        velYaw = floorStep(velYaw, deltaYaw, floor);
+        velPitch = floorStep(velPitch, deltaPitch, floor);
 
         // Legit: жёсткий потолок °/тик, иначе камера крутится винтом.
         // Smooth: потолок растёт с остатком угла, но ограничен 1.6 от настройки Speed:
@@ -824,9 +968,15 @@ public class KillAura extends Module {
         }
 
         // Шаг всегда квантуем под GCD мыши: неквантованные доли градуса — это след
-        // софта, а не руки.
-        velYaw = quantize(velYaw);
-        velPitch = quantize(velPitch);
+        // софта, а не руки. Квант округляется вниз, поэтому всё, что в него не влезло,
+        // уходит в остаток и доворачивается следующим тиком: без накопителя угол встаёт
+        // в половине кванта от точки и до цели не доходит уже никогда.
+        float stepYaw = Mth.clamp(velYaw + residualYaw, -limit, limit);
+        float stepPitch = Mth.clamp(velPitch + residualPitch, -limit, limit);
+        velYaw = quantize(stepYaw);
+        velPitch = quantize(stepPitch);
+        residualYaw = stepYaw - velYaw;
+        residualPitch = stepPitch - velPitch;
 
         if (Math.abs(velYaw) < 1.0E-4F && Math.abs(velPitch) < 1.0E-4F) return;
 
@@ -962,7 +1112,9 @@ public class KillAura extends Module {
         engagedTicks = 0;
         velYaw = 0.0F;
         velPitch = 0.0F;
-        if (RotationHandler.isActive()) RotationHandler.disengage("Smooth");
+        residualYaw = 0.0F;
+        residualPitch = 0.0F;
+        if (RotationHandler.isActive()) RotationHandler.disengage(isLegit() ? "Instant" : "Smooth");
     }
 
     private void clearRotationState() {
@@ -971,6 +1123,8 @@ public class KillAura extends Module {
         velPitch = 0.0F;
         driftYaw = 0.0F;
         driftPitch = 0.0F;
+        residualYaw = 0.0F;
+        residualPitch = 0.0F;
         // Потолок свода SpookyTime переживает смену цели (он и так гаснет, когда угол
         // уже видит цель), но не переживает выключение модуля и смену мира.
         spookySpeedYaw = 0.0F;
@@ -982,15 +1136,26 @@ public class KillAura extends Module {
     /**
      * Выбор цели.
      *
-     * С включённым Hold Target (по умолчанию) цель берётся одна — ближайшая в радиусе
-     * наводки — и больше не пересчитывается: отпускаем только когда она умерла, перестала
-     * проходить по фильтрам или вышла за радиус/конус наводки. Ротация поэтому не скачет
-     * между двумя игроками, а «кто следующий» решается только после реального релиза.
+     * С включённым Hold Target (по умолчанию) цель берётся одна и больше не пересчитывается
+     * по приоритету: отпускаем, только когда она умерла, перестала проходить по фильтрам
+     * или вышла за радиус/конус наводки. Ротация поэтому не скачет между двумя игроками.
+     * Липкость, однако, не распространяется на цель, которую этим тиком ударить нельзя:
+     * вне радиуса удара и без единой видимой точки она уступает досягаемой, иначе аура
+     * смотрит в недосягаемого, а дознание снимает это только через SILENT_AIM_TICKS.
      *
      * С выключенным — прежняя схема: сначала ванильный пик прицела, затем тот, кого можно
      * ударить ЭТИМ тиком, и только потом широкий скан по приоритету с паузой Switch Delay.
      */
     private LivingEntity pickTarget(LocalPlayer player, Vec3 eyes) {
+        if (isTrigger()) {
+            if (RotationHandler.isActive()) RotationHandler.disengage("Smooth");
+            LivingEntity on = crosshairTarget(player, eyes);
+            if (on != target) {
+                if (target != null) releaseTarget();
+                return on == null ? null : engage(on);
+            }
+            return on;
+        }
         double lockFov = fov.get();
         double lockRange = aimRangeNow(player);
 
@@ -1000,25 +1165,23 @@ public class KillAura extends Module {
             releaseTarget();
         }
         if (target != null) {
-            if (this.holdTarget.get()) return target;
-
-            // Липкость дешевле доворота, но наводится она по радиусу наводки, а бьёт —
-            // только по радиусу удара. Если текущая цель вне удара, а рядом та, до которой
-            // реально достать, переключаемся сразу: иначе аура целится в недосягаемого.
-            if (beyond(target, eyes, hitReach())) {
+            // Цель, в которую нельзя навеститься (за блоком) или до которой не достать,
+            // меняется на ту, с которой удар выйдет этим тиком. Тот же переход не
+            // трогает, если «лучше» ничего нет: переключаться на себя значит каждый тик
+            // обнулять разгон доворота и никогда не сойтись в точку.
+            if (beyond(target, eyes, hitReach()) || blindTicks >= AIM_BLOCKED_TICKS) {
                 LivingEntity reachable = findReachable(player, eyes);
-                if (reachable != null) return engage(reachable);
-            }
-            // Те же грабли, когда цель видна, но закрыта блоком: наведение уходит в null,
-            // удар не выходит, а липкая цель никогда не отпускается сама.
-            if (blindTicks >= AIM_BLOCKED_TICKS) {
-                LivingEntity aimable = findReachable(player, eyes);
-                if (aimable != null && aimable != target) return engage(aimable);
+                if (reachable != null && reachable != target) return engage(reachable);
             }
             return target;
         }
 
         if (this.holdTarget.get()) {
+            // Держим одну цель, но брать её надо из тех, кого реально можно ударить:
+            // «ближайший в радиусе наводки» годится только как предзахват, иначе аура
+            // сводит камеру в моба в 4 блоках, пока игрок стоит вплотную.
+            LivingEntity inReach = findReachable(player, eyes);
+            if (inReach != null) return engage(inReach);
             LivingEntity nearest = findNearest(player, eyes, lockRange, lockFov);
             return nearest == null ? null : engage(nearest);
         }
@@ -1090,6 +1253,8 @@ LivingEntity best = null;
             velPitch = 0.0F;
             driftYaw = 0.0F;
             driftPitch = 0.0F;
+            residualYaw = 0.0F;
+            residualPitch = 0.0F;
         }
         blindTicks = 0;
         noCritTicks = 0;
@@ -1115,6 +1280,40 @@ LivingEntity best = null;
     /** Дальность удара с серверной полкой: выше ванильного порога удар уже флаг. */
     private double hitReach() {
         return Math.min(attackReach.get(), MAX_SAFE_REACH);
+    }
+
+    private LivingEntity crosshairTarget(LocalPlayer player, Vec3 eyes) {
+        float reach = (float) hitReach();
+        float yaw = player.getYRot();
+        float pitch = player.getXRot();
+        boolean walls = !throughWalls.getValue();
+
+        if (mc.hitResult instanceof EntityHitResult hit
+                && hit.getEntity() instanceof LivingEntity living
+                && living != player && acceptable(living)
+                && RayTraceUtils.isLookingAt(living, reach, yaw, pitch, walls)) {
+            return living;
+        }
+
+        AABB area = player.getBoundingBox().inflate(reach + 1.0D);
+        LivingEntity best = null;
+        double bestDist = Double.MAX_VALUE;
+        List<LivingEntity> candidates = new ArrayList<>(
+                level().getEntitiesOfClass(LivingEntity.class, area, e -> e != player));
+        for (Player other : level().players()) {
+            if (other != player && other.getBoundingBox().intersects(area) && !candidates.contains(other)) {
+                candidates.add(other);
+            }
+        }
+        for (LivingEntity living : candidates) {
+            if (!acceptable(living)) continue;
+            if (!RayTraceUtils.isLookingAt(living, reach, yaw, pitch, walls)) continue;
+            double dist = RayTraceUtils.getClosestDistanceSqr(eyes, living.getBoundingBox());
+            if (dist >= bestDist) continue;
+            bestDist = dist;
+            best = living;
+        }
+        return best;
     }
 
     /** Ближайшая цель, до которой реально можно дотянуться ударом. */
@@ -1178,10 +1377,13 @@ LivingEntity best = null;
 
     /**
      * Можно ли на эту цель вообще навеститься без режима «сквозь стены»: достаточно
-     * одной видимой точки на силуэте, а не обязательно груди.
+     * одной видимой точки на силуэте, а не обязательно груди. Для Multipoint берётся
+     * тот же набор точек, что и в наводке: иначе цель, у которой из-за угла виден
+     * только бок, отсекается ещё на захвате и мультипоинты до неё не доходят.
      */
     private boolean hasAimPoint(LivingEntity entity, Vec3 eyes) {
         if (throughWalls.getValue()) return true;
+        if (aimPoint.is("Multipoint")) return UBoxPoints.hasVisiblePoint(entity, eyes);
         AABB box = entity.getBoundingBox();
         double cx = box.minX + (box.maxX - box.minX) * 0.5D;
         double cz = box.minZ + (box.maxZ - box.minZ) * 0.5D;
@@ -1218,8 +1420,11 @@ LivingEntity best = null;
     private Vec3 aimPosition(LivingEntity entity, Vec3 eyes) {
         Vec3 point;
 
-        if (aimPoint.getValue().equals("Multipoint")) {
-            UBoxPoints.TargetPoint best = UBoxPoints.getBestPoint(entity);
+        if (aimPoint.is("Multipoint")) {
+            // Радиус удара передаём как предпочтение: целиться в точку дальше него
+            // бессмысленно — это дальний край хитбокса, удар по которому сервер всё
+            // равно не примет.
+            UBoxPoints.TargetPoint best = UBoxPoints.getBestPoint(entity, hitReach());
             if (best == null) return null;
             if (!best.isVisible() && !throughWalls.getValue()) return null;
             point = best.point();
@@ -1246,7 +1451,14 @@ LivingEntity best = null;
             if (velocity.lengthSqr() > 1.0E-6D) {
                 double ticks = eyes.distanceTo(point) * 0.05D;
                 double scale = Math.min(2.5D, leadAmount * ticks);
-                point = point.add(velocity.scale(scale));
+                Vec3 offset = velocity.scale(scale);
+                // Уводить точку дальше силуэта нельзя: и клиентский гейт удара, и
+                // серверная проверка — это луч против хитбокса. Без полки упреждение на
+                // быстрой цели уезжает в пустоту, и аура с идеальным прицелом не бьёт.
+                double maxOffset = Math.max(0.05D, entity.getBbWidth() * 0.4D);
+                double length = offset.length();
+                if (length > maxOffset) offset = offset.scale(maxOffset / length);
+                point = point.add(offset);
             }
         }
         return point;
@@ -1255,61 +1467,31 @@ LivingEntity best = null;
     // ------------------------------------------------------------------ таймеры
 
     /**
-     * Attack Delay в тиках: окно 520-570 мс целиком лежит в одном тиковом шаге,
-     * поэтому джиттер «+0-50 мс» внутри него физически невозможен.
+     * Attack Delay в тиках: 10-11 тиков = 500-550 мс. Окно 470-570 мс целиком лежит
+     * внутри тикового шага 50 мс, поэтому джиттер «+0-50 мс» внутри него физически
+     * невозможен — джиттер делаем по полкам сетки.
      */
     private long delayTicks() {
-        return Math.max(1L, (long) Math.ceil(attackDelay.get() / 50.0F));
+        return MIN_DELAY_TICKS
+                + ThreadLocalRandom.current().nextInt(MAX_DELAY_TICKS - MIN_DELAY_TICKS + 1);
     }
 
     private void tickTimers() {
         if (sprintReleaseTicks <= 0) return;
         sprintReleaseTicks--;
-        // Как только сервер перестал считать нас бегущими (STOP_SPRINTING ушёл),
-        // держать снятый ввод незачем — возвращаем ходьбу/спринт.
-        LocalPlayer player = player();
-        if (player != null && !isServerSprinting(player)) {
-            sprintReleaseTicks = 0;
-        }
-    }
-
-    /**
-     * Подъём прыжка: снимаем forward/sprint заранее, пока сервер ещё считает нас
-     * бегущими и окно крита не открылось. Держим не фиксированный lead, а до
-     * флипа wasSprinting — как только STOP_SPRINTING ушёл, ввод возвращаем.
-     */
-    private void armSprintReleaseOnRise(LocalPlayer player) {
-        if (sprintReset.getValue().equals("None")) return;
-        if (sprintReleaseTicks > 0) return;
-        if (player.getDeltaMovement().y <= 0.0D) return;
-        if (!isMovingForward(player) || !isServerSprinting(player)) return;
-        sprintReleaseTicks = sprintStopCap();
-    }
-
-    /**
-     * Падем, а сервер всё ещё считает нас бегущими: перечим ввод ещё пару тиков.
-     * Удар выпустит тот тик, где isServerSprinting() уже false.
-     */
-    private void keepSprintReleaseArmed(LocalPlayer player) {
-        if (!isMovingForward(player)) return;
-        if (sprintReleaseTicks < sprintReArmTicks()) {
-            sprintReleaseTicks = sprintReArmTicks();
-        }
-    }
-
-    /** Нижняя гарантия отстоя в тиках. */
-    private int sprintReArmTicks() {
-        return Math.round(sprintMinStopTicks.get());
-    }
-
-    /** Потолок отстоя в тиках; ниже нижней гарантии он быть не может. */
-    private int sprintStopCap() {
-        return Math.max(sprintReArmTicks(), Math.round(sprintMaxStopTicks.get()));
     }
 
     private boolean isMovingForward(LocalPlayer player) {
         Input input = player.input != null ? player.input.keyPresses : null;
         return player.isSprinting() || (input != null && input.forward());
+    }
+
+    /**
+     * Длина остановки Legit-сброса: случайно 1 или 2 тика. Окно обязано быть
+     * случайным — фиксированные интервалы античит читает как след софта.
+     */
+    private static int randomStopTicks() {
+        return 1 + ThreadLocalRandom.current().nextInt(2);
     }
 
     /** Спринт таким, каким его видит сервер (wasSprinting), а не локальный флаг. */
@@ -1323,6 +1505,16 @@ LivingEntity best = null;
 
     private boolean isPausedByUsing() {
         return pauseWhileUsing.getValue() && player().isUsingItem();
+    }
+
+    private boolean isPausedByEating() {
+        return pauseWhileEating.getValue() && isEating();
+    }
+
+    private boolean isEating() {
+        if (player() == null || !player().isUsingItem()) return false;
+        ItemUseAnimation anim = player().getUseItem().getUseAnimation();
+        return anim == ItemUseAnimation.EAT || anim == ItemUseAnimation.DRINK;
     }
 
     private static boolean isCritException(LocalPlayer player) {

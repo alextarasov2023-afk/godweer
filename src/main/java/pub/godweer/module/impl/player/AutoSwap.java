@@ -10,18 +10,18 @@ import pub.godweer.event.EventTarget;
 import pub.godweer.event.list.KeyboardInputEvent;
 import pub.godweer.event.list.MouseInputEvent;
 import pub.godweer.event.list.PlayerTickEvent;
+import pub.godweer.hud.Notifications;
 import pub.godweer.module.Category;
 import pub.godweer.module.Module;
-import pub.godweer.module.impl.combat.AutoTotem;
 import pub.godweer.module.settings.impl.BindSetting;
-import pub.godweer.module.settings.impl.MultiModeSetting;
+import pub.godweer.module.settings.impl.ModeSetting;
 import pub.godweer.ui.clickgui.PanelRefractions;
 import pub.godweer.util.player.MoveBlockUtility;
 
-import java.util.List;
+import java.util.Optional;
 
 /**
- * Свап руки 1 и руки 2 по бинду: предмет из второй руки переезжает в первую,
+ * Свап руки 1 и руки 2 по бинду: предметы между руками меняются местами,
  * как ванильная F, но со сбросом спринта — ровно как это делает ServerHelper.
  *
  * Сброс спринта локальный: спринт гасится через setSprinting(false) в тик перед
@@ -30,17 +30,17 @@ import java.util.List;
  * пакеты ломают. MoveBlockUtility.blockSprint не даёт спринту вернуться, пока
  * идёт обмен слотов.
  *
- * Список «Для 1 руки» — белый список предметов, которыми вообще имеет смысл
- * обмениваться: яблоко, тотем, щит, заряд ветра, голова игрока и талисман
- * (зачарованный тотем). Свап проходит, если разрешён хотя бы один из двух
- * предметов: иначе нечем было бы обменивать руки, а обычный тотем и талисман
- * различаются зачарованием.
+ * «Для 1 руки» и «Для 2 руки» — по одному режиму на руку: «Любое» пропускает
+ * любой предмет из списка, конкретный режим требует именно его (яблоко, тотем,
+ * щит, заряд ветра, голова игрока, талисман — зачарованный тотем). Свап
+ * проходит, когда каждая непустая рука удовлетворяет своему режиму.
  */
 public final class AutoSwap extends Module {
 
     /** Кнопка свапа с offhand в контейнерном клике (то же, что жмёт ванильная F). */
     private static final int OFFHAND_BUTTON = 40;
 
+    private static final String ANY = "Любое";
     private static final String APPLE = "Яблоко";
     private static final String TOTEM = "Тотем";
     private static final String SHIELD = "Щит";
@@ -48,10 +48,13 @@ public final class AutoSwap extends Module {
     private static final String PLAYER_HEAD = "Голова игрока";
     private static final String TALISMAN = "Талисман";
 
+    private static AutoSwap instance;
+
     public final BindSetting swapKey = bind("Свап", InputConstants.KEY_R);
-    public final MultiModeSetting handItems = multiMode("Для 1 руки",
-            List.of(APPLE, TOTEM, SHIELD, WIND_CHARGE, PLAYER_HEAD, TALISMAN),
-            APPLE, TOTEM, SHIELD, WIND_CHARGE, PLAYER_HEAD, TALISMAN);
+    public final ModeSetting mainHandItems = mode("Для 1 руки", ANY,
+            ANY, APPLE, TOTEM, SHIELD, WIND_CHARGE, PLAYER_HEAD, TALISMAN);
+    public final ModeSetting offHandItems = mode("Для 2 руки", ANY,
+            ANY, APPLE, TOTEM, SHIELD, WIND_CHARGE, PLAYER_HEAD, TALISMAN);
 
     private enum State {
         IDLE,
@@ -60,9 +63,17 @@ public final class AutoSwap extends Module {
     }
 
     private State state = State.IDLE;
+    /** Слот, проверенный при нажатии: за тик до обмена колесо могло уехать. */
+    private int swapSlot = -1;
 
     public AutoSwap() {
         super("AutoSwap", "Свап руки 1 и руки 2 по бинду", Category.PLAYER);
+        instance = this;
+    }
+
+    /** Занят ли обмен слотов (ServerHelper и другие транзакции ждут этот флаг). */
+    public static boolean isSwapping() {
+        return instance != null && instance.isEnabled() && instance.state != State.IDLE;
     }
 
     @Override
@@ -72,6 +83,7 @@ public final class AutoSwap extends Module {
 
     private void reset() {
         state = State.IDLE;
+        swapSlot = -1;
         MoveBlockUtility.unblock(this);
     }
 
@@ -97,25 +109,44 @@ public final class AutoSwap extends Module {
     }
 
     private boolean queueSwap() {
-        if (state != State.IDLE || AutoTotem.isSwapping()) return false;
+        if (state != State.IDLE) {
+            Notifications.push("Свап ещё выполняется");
+            return false;
+        }
         if (!inGame() || player() == null || gameMode() == null) return false;
         if (screen() != null || PanelRefractions.isOpen()) return false;
 
         LocalPlayer player = player();
-        ItemStack main = player.getInventory().getItem(player.getInventory().getSelectedSlot());
+        int slot = player.getInventory().getSelectedSlot();
+        ItemStack main = player.getInventory().getItem(slot);
         ItemStack off = player.getOffhandItem();
-        if (main.isEmpty() && off.isEmpty()) return false;
+        if (main.isEmpty() && off.isEmpty()) {
+            Notifications.push("Свап: обе руки пусты");
+            return false;
+        }
 
-        if (!isAllowed(main) && !isAllowed(off)) return false;
+        if (!handMatches(main, mainHandItems)) {
+            Notifications.push("Свап: " + itemName(main) + " — рука 1 настроена на «" + mainHandItems.getValue() + "»");
+            return false;
+        }
+        if (!handMatches(off, offHandItems)) {
+            Notifications.push("Свап: " + itemName(off) + " — рука 2 настроена на «" + offHandItems.getValue() + "»");
+            return false;
+        }
 
+        swapSlot = slot;
         state = State.STOP_SPRINT;
         return true;
+    }
+
+    private static String itemName(ItemStack stack) {
+        return stack.getHoverName().getString();
     }
 
     @EventTarget
     public void onTick(PlayerTickEvent event) {
         if (event.getPhase() != PlayerTickEvent.Phase.PRE) return;
-        if (!inGame() || player() == null || gameMode() == null || AutoTotem.isSwapping()) {
+        if (!inGame() || player() == null || gameMode() == null) {
             reset();
             return;
         }
@@ -140,6 +171,7 @@ public final class AutoSwap extends Module {
             case EXECUTE -> {
                 executeSwap(player);
                 state = State.IDLE;
+                swapSlot = -1;
             }
 
             case IDLE -> {
@@ -153,30 +185,36 @@ public final class AutoSwap extends Module {
      * предмета до синхронизации от сервера.
      */
     private void executeSwap(LocalPlayer player) {
-        int slot = InventoryMenu.USE_ROW_SLOT_START + player.getInventory().getSelectedSlot();
-        gameMode().handleContainerInput(player.inventoryMenu.containerId, slot,
+        int slot = swapSlot >= 0 ? swapSlot : player.getInventory().getSelectedSlot();
+        int menuSlot = InventoryMenu.USE_ROW_SLOT_START + slot;
+        gameMode().handleContainerInput(player.inventoryMenu.containerId, menuSlot,
                 OFFHAND_BUTTON, ContainerInput.SWAP, player);
     }
 
-    /** Разрешён ли предмет белым списком «Для 1 руки». */
-    private boolean isAllowed(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return false;
+    /** Рука согласна: пустая рука всегда согласна, занятая — по выбранному режиму. */
+    private boolean handMatches(ItemStack stack, ModeSetting allowed) {
+        if (stack == null || stack.isEmpty()) return true;
+        Optional<String> type = classify(stack);
+        return type.filter(value -> ANY.equals(allowed.getValue()) || allowed.getValue().equals(value)).isPresent();
+    }
 
+    /** Категория предмета из настроек, empty — предмет не из списка. */
+    private Optional<String> classify(ItemStack stack) {
         if (stack.is(Items.APPLE) || stack.is(Items.GOLDEN_APPLE)) {
-            return handItems.isEnabled(APPLE);
+            return Optional.of(APPLE);
         }
         if (stack.is(Items.TOTEM_OF_UNDYING)) {
-            return stack.isEnchanted() ? handItems.isEnabled(TALISMAN) : handItems.isEnabled(TOTEM);
+            return Optional.of(stack.isEnchanted() ? TALISMAN : TOTEM);
         }
         if (stack.is(Items.SHIELD)) {
-            return handItems.isEnabled(SHIELD);
+            return Optional.of(SHIELD);
         }
         if (stack.is(Items.WIND_CHARGE)) {
-            return handItems.isEnabled(WIND_CHARGE);
+            return Optional.of(WIND_CHARGE);
         }
         if (stack.is(Items.PLAYER_HEAD)) {
-            return handItems.isEnabled(PLAYER_HEAD);
+            return Optional.of(PLAYER_HEAD);
         }
-        return false;
+        return Optional.empty();
     }
 }

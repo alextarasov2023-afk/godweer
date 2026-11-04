@@ -12,11 +12,14 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.renderpearl.api.textures.FilterMode;
 import com.mojang.renderpearl.api.textures.GpuSampler;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.renderer.state.level.CameraRenderState;
 import net.minecraft.world.entity.HumanoidArm;
+import org.joml.Matrix4f;
 import org.joml.Vector4f;
 import org.lwjgl.system.MemoryStack;
 import pub.godweer.module.impl.render.ShaderHands;
 import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.render.Render3DUtil;
 import pub.godweer.util.render.pipeline.FullscreenQuad;
 import pub.godweer.util.render.pipeline.PiplinePost;
 import pub.godweer.util.render.pipeline.Post;
@@ -32,7 +35,7 @@ public final class ShaderHandsRenderer {
     private static final Vector4f CLEAR = new Vector4f(0.0F, 0.0F, 0.0F, 0.0F);
 
     private static final int MASK_SIZE = new Std140SizeCalculator().putVec4().get();
-    private static final int FILL_SIZE = new Std140SizeCalculator().putVec4().putVec4().get();
+    private static final int FILL_SIZE = new Std140SizeCalculator().putVec4().putVec4().putMat4f().get();
 
     private GpuBuffer maskUniforms;
     private GpuBuffer fillUniforms;
@@ -94,18 +97,20 @@ public final class ShaderHandsRenderer {
             RenderSystem.bindDefaultUniforms(pass);
             pass.setUniform("HandFillUniforms", this.fillUniforms);
             pass.setUniform("MaskSampler", this.maskTarget.getColorTextureView(), sampler);
+            pass.setUniform("DepthSampler", mainTarget.getDepthTextureView(), depthSampler);
             draw(pass);
         }
     }
 
     private static RenderPipeline pipelineFor(ShaderHands module) {
         return switch (module.getStyle()) {
-            case ShaderHands.FROST -> PiplinePost.HAND_FROST;
-            case ShaderHands.GALAXY -> PiplinePost.HAND_GALAXY;
+            case ShaderHands.NEBULA -> PiplinePost.HAND_NEBULA;
+            case ShaderHands.HOLO -> PiplinePost.HAND_HOLO;
+            case ShaderHands.CAUSTICS -> PiplinePost.HAND_CAUSTICS;
             case ShaderHands.EMBER -> PiplinePost.HAND_EMBER;
-            case ShaderHands.SLIME -> PiplinePost.HAND_SLIME;
-            case ShaderHands.SMOKE -> PiplinePost.HAND_SMOKE;
-            default -> PiplinePost.HAND_LAVA;
+            case ShaderHands.FROST -> PiplinePost.HAND_FROST;
+            // Неизвестный или устаревший стиль из конфига — базовое сияние.
+            default -> PiplinePost.HAND_AURORA;
         };
     }
 
@@ -130,9 +135,22 @@ public final class ShaderHandsRenderer {
             ByteBuffer data = Std140Builder.onStack(stack, FILL_SIZE)
                     .putVec4(ColorUtil.red(color) / 255.0F, ColorUtil.green(color) / 255.0F, ColorUtil.blue(color) / 255.0F, module.getOpacity())
                     .putVec4(Post.shaderTime() * module.getSpeed(), 0.0F, 0.0F, 0.0F)
+                    .putMat4f(inverseProjection())
                     .get();
             write(this.fillUniforms, data);
         }
+    }
+
+    /**
+     * Обратная матрица проекции кадра: по ней заливка восстанавливает позицию
+     * пикселя руки в пространстве вида, чтобы узор лежал на кисти, а не на экране.
+     */
+    private static Matrix4f inverseProjection() {
+        CameraRenderState state = Render3DUtil.cameraRenderState(Minecraft.getInstance());
+        Matrix4f projection = state != null && state.projectionMatrix != null
+                ? new Matrix4f(state.projectionMatrix)
+                : Render3DUtil.levelProjectionCopy();
+        return projection == null ? new Matrix4f() : projection.invert();
     }
 
     private void initBuffers() {

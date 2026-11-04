@@ -87,13 +87,12 @@ public class SettingsPopup {
         }
         this.cachedHeight = 20.0F + 20.0F + totalSettingsH + 5.0F;
 
-        int popupBgColor = 0xFF0D0E12;
-        float popupAlpha = alpha * 0.95F;
+        int popupBgColor = 0xFF0A0B0F;
+        float popupAlpha = alpha * 0.98F;
 
-        if (Theme.getBackgroundMode().equalsIgnoreCase("Blur")) {
-            Render2D.drawBlur(x, y, width, cachedHeight, 6.0F, ColorUtil.multiplyAlpha(popupBgColor, popupAlpha), alpha);
-        }
         Render2D.drawRoundedRect(x, y, width, cachedHeight, 6.0F, ColorUtil.multiplyAlpha(popupBgColor, popupAlpha));
+        Render2D.drawRoundedOutline(x, y, width, cachedHeight, 6.0F, 0.8F,
+                ColorUtil.multiplyAlpha(0xFF2D3D53, alpha));
 
         Fonts.drawString(Fonts.SF_MEDIUM, Localization.get("GUI Settings"), x + 7, y + 6.0F, 9.5F, ColorUtil.multiplyAlpha(Theme.TEXT_MUTED, alpha));
 

@@ -19,9 +19,6 @@ import pub.godweer.rotation.RotationHandler;
 import pub.godweer.event.EventManager;
 import pub.godweer.event.list.GlidingVelocityEvent;
 import pub.godweer.event.list.JumpEvent;
-import pub.godweer.module.impl.movement.WaterSpeed;
-import pub.godweer.module.impl.render.PopEffect;
-import pub.godweer.module.impl.render.Removals;
 
 /**
  * Create by daun kvass
@@ -29,12 +26,6 @@ import pub.godweer.module.impl.render.Removals;
 @Mixin(LivingEntity.class)
 public abstract class LivingEntityMixin {
 
-    @Inject(method = "getEffectBlendFactor", at = @At("HEAD"), cancellable = true)
-    private void onGetEffectBlendFactor(Holder<MobEffect> effect, float partialTick, CallbackInfoReturnable<Float> cir) {
-        if ((Object) this == Minecraft.getInstance().player && Removals.INSTANCE != null && Removals.INSTANCE.isBadEffectsDisabled()) {
-            cir.setReturnValue(0.0F);
-        }
-    }
     @Inject(method = "jumpFromGround", at = @At("HEAD"))
     private void onPlayerJump(CallbackInfo ci) {
         if ((Object) this instanceof LocalPlayer player) {
@@ -62,28 +53,5 @@ public abstract class LivingEntityMixin {
             EventManager.call(event);
             if (event.getVelocity() != currentVelocity) {entity.setDeltaMovement(event.getVelocity());}
         }
-    }
-    @Inject(method = "die", at = @At("HEAD"))
-    private void onEntityDie(net.minecraft.world.damagesource.DamageSource damageSource, CallbackInfo ci) {
-        LivingEntity entity = (LivingEntity) (Object) this;
-        PopEffect popEffect = pub.godweer.Client.INSTANCE.moduleManager.getModule(PopEffect.class);
-        if (popEffect != null && popEffect.isEnabled()) {
-            popEffect.onEntityKill(entity);
-        }
-    }
-    @ModifyVariable(method = "setSprinting", at = @At("HEAD"), ordinal = 0, argsOnly = true)
-    private boolean setSprintingHook(boolean sprinting) {
-        Minecraft mc = Minecraft.getInstance();
-
-        if (WaterSpeed.INSTANCE != null && WaterSpeed.INSTANCE.isEnabled()) {
-            if (mc.player != null && mc.level != null && (Object) this == mc.player) {
-                BlockPos blockPos = BlockPos.containing(mc.player.getX(), mc.player.getY() - 0.5, mc.player.getZ());
-                if (mc.player.isInWater() || mc.level.getBlockState(blockPos).getBlock() instanceof LiquidBlock) {
-                    return true;
-                }
-            }
-        }
-
-        return sprinting;
     }
 }

@@ -2,7 +2,6 @@ package pub.godweer.module.impl.render;
 
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import pub.godweer.util.style.Theme;
 import pub.godweer.util.render.Render3D;
 import pub.godweer.util.render.world.BlockScan;
 import pub.godweer.event.EventTarget;
@@ -22,8 +21,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Подсветка блоков сквозь стены: сундуки, спавнеры, руды и прочее — каждая группа
- * своим цветом, стили — мягкое свечение, только углы или полный каркас.
+ * Подсветка блоков сквозь стены: сундуки, спавнеры, руды и прочее — каждый блок
+ * цветом, который он сам и означает (алмазная руда — алмазная бирюза, золото —
+ * золотой и т.д.), без выбора цвета из темы.
  *
  * Работает через батч-примитивы Render3D (заливка/каркас/углы/свечение), а не
  * drawBox() на каждый блок: шейдерные стили BlockHighlight считают uv из локальных
@@ -44,35 +44,62 @@ public final class BlockEsp extends Module {
     /** Рамка чуть больше блока, иначе угла сливаются с текстурной сеткой. */
     private static final float EXPAND = 0.02F;
 
-    private static final List<Group> GROUPS = List.of(
-            new Group("Сундуки", 0xE0B341, Blocks.CHEST, Blocks.TRAPPED_CHEST),
-            new Group("Эндер-сундук", 0x1E9E86, Blocks.ENDER_CHEST),
-            new Group("Шалкеры", 0xC06BD8, Blocks.SHULKER_BOX),
-            new Group("Спавнеры", 0x8A5BD8, Blocks.SPAWNER),
-            new Group("Маяки", 0x7FD8E8, Blocks.BEACON),
-            new Group("Руды", 0x9FBFC8,
-                    Blocks.COAL_ORE, Blocks.DEEPSLATE_COAL_ORE,
-                    Blocks.COPPER_ORE, Blocks.DEEPSLATE_COPPER_ORE,
-                    Blocks.DIAMOND_ORE, Blocks.DEEPSLATE_DIAMOND_ORE,
-                    Blocks.EMERALD_ORE, Blocks.DEEPSLATE_EMERALD_ORE,
-                    Blocks.GOLD_ORE, Blocks.DEEPSLATE_GOLD_ORE, Blocks.NETHER_GOLD_ORE,
-                    Blocks.IRON_ORE, Blocks.DEEPSLATE_IRON_ORE,
-                    Blocks.LAPIS_ORE, Blocks.DEEPSLATE_LAPIS_ORE,
-                    Blocks.REDSTONE_ORE, Blocks.DEEPSLATE_REDSTONE_ORE,
-                    Blocks.NETHER_QUARTZ_ORE),
-            new Group("Драгметаллы", 0x6FE0C0,
-                    Blocks.DIAMOND_BLOCK, Blocks.EMERALD_BLOCK, Blocks.GOLD_BLOCK, Blocks.NETHERITE_BLOCK),
-            new Group("Обсидиан", 0x7A50C8, Blocks.OBSIDIAN, Blocks.CRYING_OBSIDIAN),
-            new Group("Древний обломок", 0xBE5A28, Blocks.ANCIENT_DEBRIS),
-            new Group("Драконье яйцо", 0xD84A6E, Blocks.DRAGON_EGG));
+    /** Цвета блоков — как их видно в игре, без темизации. */
+    private static final List<BlockColor> ORES = List.of(
+            bc(Blocks.DIAMOND_ORE, 0x5CE5D6), bc(Blocks.DEEPSLATE_DIAMOND_ORE, 0x5CE5D6),
+            bc(Blocks.EMERALD_ORE, 0x17B85A), bc(Blocks.DEEPSLATE_EMERALD_ORE, 0x17B85A),
+            bc(Blocks.GOLD_ORE, 0xEFC63C), bc(Blocks.DEEPSLATE_GOLD_ORE, 0xEFC63C), bc(Blocks.NETHER_GOLD_ORE, 0xEFC63C),
+            bc(Blocks.IRON_ORE, 0xD8BFA9), bc(Blocks.DEEPSLATE_IRON_ORE, 0xD8BFA9),
+            bc(Blocks.LAPIS_ORE, 0x2A58C8), bc(Blocks.DEEPSLATE_LAPIS_ORE, 0x2A58C8),
+            bc(Blocks.REDSTONE_ORE, 0xC82828), bc(Blocks.DEEPSLATE_REDSTONE_ORE, 0xC82828),
+            bc(Blocks.COPPER_ORE, 0xD2825A), bc(Blocks.DEEPSLATE_COPPER_ORE, 0xD2825A),
+            bc(Blocks.COAL_ORE, 0x787878), bc(Blocks.DEEPSLATE_COAL_ORE, 0x787878),
+            bc(Blocks.NETHER_QUARTZ_ORE, 0xE8E0D8));
+
+    private static final List<BlockColor> ORE_BLOCKS = buildOreBlocks();
+
+    private static List<BlockColor> buildOreBlocks() {
+        List<BlockColor> out = new ArrayList<>();
+        out.add(bc(Blocks.DIAMOND_BLOCK, 0x5CE5D6));
+        out.add(bc(Blocks.EMERALD_BLOCK, 0x17B85A));
+        out.add(bc(Blocks.GOLD_BLOCK, 0xEFC63C));
+        out.add(bc(Blocks.IRON_BLOCK, 0xD8BFA9));
+        out.add(bc(Blocks.LAPIS_BLOCK, 0x2A58C8));
+        out.add(bc(Blocks.REDSTONE_BLOCK, 0xC82828));
+        out.add(bc(Blocks.COAL_BLOCK, 0x787878));
+        out.add(bc(Blocks.QUARTZ_BLOCK, 0xE8E0D8));
+        // Медь в 26.3 — семья (обычная/окисленная/восковая), берём целиком.
+        Blocks.COPPER_BLOCK.forEach(block -> out.add(bc(block, 0xD2825A)));
+        return List.copyOf(out);
+    }
+
+    private static final List<BlockColor> NETHERITE = List.of(
+            bc(Blocks.NETHERITE_BLOCK, 0x5E5454),
+            bc(Blocks.ANCIENT_DEBRIS, 0xBE5A28));
+
+    private static final List<BlockColor> OBSIDIAN = List.of(
+            bc(Blocks.OBSIDIAN, 0x7A50C8),
+            bc(Blocks.CRYING_OBSIDIAN, 0x9A2BC8));
+
+    private static final List<Section> GROUPS = List.of(
+            new Section("Сундуки", bc(Blocks.CHEST, 0xE0B341), bc(Blocks.TRAPPED_CHEST, 0xE0B341)),
+            new Section("Эндер-сундук", bc(Blocks.ENDER_CHEST, 0x1E9E86)),
+            new Section("Шалкеры", bc(Blocks.SHULKER_BOX, 0xC06BD8)),
+            new Section("Спавнеры", bc(Blocks.SPAWNER, 0x8A5BD8)),
+            new Section("Маяки", bc(Blocks.BEACON, 0x7FD8E8)),
+            new Section("Драконье яйцо", bc(Blocks.DRAGON_EGG, 0xD84A6E)),
+            new Section("Ценности", merge(ORES, ORE_BLOCKS, NETHERITE, OBSIDIAN)),
+            new Section("Руда", ORES),
+            new Section("Блоки из руды", ORE_BLOCKS),
+            new Section("Обсидиан", OBSIDIAN),
+            new Section("Блоки незерита", NETHERITE));
 
     public final ModeSetting style = mode("Стиль", STYLE_GLOW, STYLE_GLOW, STYLE_CORNERS, STYLE_WIREFRAME);
     public final SliderSetting radius = slider("Радиус", 32.0F, 8.0F, 64.0F, 1.0F);
     public final MultiModeSetting blocks = multiMode("Блоки",
-            List.of("Сундуки", "Эндер-сундук", "Шалкеры", "Спавнеры", "Руды", "Драгметаллы"),
-            "Сундуки", "Эндер-сундук", "Шалкеры", "Спавнеры", "Маяки", "Руды", "Драгметаллы",
-            "Обсидиан", "Древний обломок", "Драконье яйцо");
-    public final CheckBox themeColor = checkbox("Цвет из темы", false);
+            List.of("Сундуки", "Эндер-сундук", "Шалкеры", "Спавнеры", "Маяки", "Драконье яйцо",
+                    "Ценности", "Руда", "Блоки из руды", "Обсидиан", "Блоки незерита"),
+            "Сундуки", "Эндер-сундук", "Шалкеры", "Спавнеры", "Ценности");
     public final CheckBox throughWalls = checkbox("Сквозь стены", true);
     public final CheckBox pulse = checkbox("Пульс", true);
 
@@ -133,12 +160,10 @@ public final class BlockEsp extends Module {
         boxes.clear();
         wanted.clear();
 
-        int accent = Theme.getAccentColor();
-        for (Group group : GROUPS) {
-            if (!blocks.isEnabled(group.label())) continue;
-            Colors colors = group.colors(themeColor.get() ? accent : group.rgb);
-            for (Block block : group.blocks) {
-                wanted.put(block, colors);
+        for (Section section : GROUPS) {
+            if (!blocks.isEnabled(section.label())) continue;
+            for (BlockColor bc : section.blocks()) {
+                wanted.put(bc.block(), bc.colors());
             }
         }
         if (wanted.isEmpty()) return;
@@ -150,29 +175,34 @@ public final class BlockEsp extends Module {
                         colors.fill, colors.edge)));
     }
 
-    private record Colors(Color fill, Color edge) {}
+    private static BlockColor bc(Block block, int rgb) {
+        return new BlockColor(block, rgb);
+    }
 
-    private static final class Group {
-        private final String label;
-        private final int rgb;
-        private final Block[] blocks;
-
-        private Group(String label, int rgb, Block... blocks) {
-            this.label = label;
-            this.rgb = rgb;
-            this.blocks = blocks;
+    @SafeVarargs
+    private static List<BlockColor> merge(List<BlockColor>... lists) {
+        List<BlockColor> all = new ArrayList<>();
+        for (List<BlockColor> list : lists) {
+            all.addAll(list);
         }
+        return List.copyOf(all);
+    }
 
-        private String label() {
-            return label;
-        }
-
+    private record BlockColor(Block block, int rgb) {
         /** Заливка почти прозрачная, грани яркие — иначе 300 кубов превращаются в кашу. */
-        private Colors colors(int color) {
-            int red = color >> 16 & 255;
-            int green = color >> 8 & 255;
-            int blue = color & 255;
+        private Colors colors() {
+            int red = rgb >> 16 & 255;
+            int green = rgb >> 8 & 255;
+            int blue = rgb & 255;
             return new Colors(new Color(red, green, blue, 46), new Color(red, green, blue, 230));
         }
     }
+
+    private record Section(String label, List<BlockColor> blocks) {
+        private Section(String label, BlockColor... blocks) {
+            this(label, List.of(blocks));
+        }
+    }
+
+    private record Colors(Color fill, Color edge) {}
 }

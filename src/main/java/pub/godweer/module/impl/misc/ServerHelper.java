@@ -1,6 +1,7 @@
 package pub.godweer.module.impl.misc;
 
 import com.mojang.blaze3d.platform.InputConstants;
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponents;
@@ -19,17 +20,25 @@ import pub.godweer.event.EventTarget;
 import pub.godweer.event.list.KeyboardInputEvent;
 import pub.godweer.event.list.MouseInputEvent;
 import pub.godweer.event.list.PlayerTickEvent;
+import pub.godweer.event.list.Render2DEvent;
 import pub.godweer.ui.clickgui.PanelRefractions;
 import pub.godweer.ui.modal.ServerHelperModal;
 import pub.godweer.module.Category;
 import pub.godweer.module.Module;
-import pub.godweer.module.impl.combat.AutoTotem;
+import pub.godweer.module.impl.player.AutoSwap;
 import pub.godweer.module.settings.impl.BindSetting;
 import pub.godweer.module.settings.impl.ButtonSetting;
 import pub.godweer.module.settings.impl.CheckBox;
+import pub.godweer.module.settings.impl.ModeSetting;
 import pub.godweer.module.settings.impl.MultiModeSetting;
 import pub.godweer.util.player.InventoryUtil;
 import pub.godweer.util.player.MoveBlockUtility;
+import pub.godweer.util.render.Render2D;
+import pub.godweer.util.render.Render2DUtil;
+import pub.godweer.util.render.font.Fonts;
+import pub.godweer.util.style.ColorUtil;
+import pub.godweer.util.style.Theme;
+import pub.godweer.hud.HudStyle;
 import pub.godweer.hud.Notifications;
 
 import java.util.*;
@@ -39,8 +48,17 @@ import java.util.*;
  */
 public final class ServerHelper extends Module {
 
-    private static final int HOTBAR_SIZE = 9;
+    public static ServerHelper INSTANCE;
 
+    private static final int HOTBAR_SIZE = 9;
+    private static final int LEGIT_SPRINT_HOLD = 3;
+    private static final int LEGIT_WAIT_MAX_TICKS = 20;
+    // Колесо выбора: радиус плиток, мёртвая зона курсора и сторона плитки.
+    private static final float SELECT_RADIUS = 46.0F;
+    private static final float SELECT_DEADZONE = 10.0F;
+    private static final float SELECT_TILE = 26.0F;
+
+    public final ModeSetting mode = mode("Mode", "Default", "Default", "Legit");
     public final MultiModeSetting packs = multiMode("Packs", List.of("FunTime"), "FunTime", "HolyWorld", "Vanilla");
     public final CheckBox swapBack = checkbox("Swap Back", true);
 
@@ -81,7 +99,11 @@ public final class ServerHelper extends Module {
         STOP_SPRINT,
         SWAP_AND_USE,
         HOLD_USE,
-        COOLDOWN
+        COOLDOWN,
+        LEGIT_WAIT,
+        LEGIT_USE,
+        LEGIT_HOLD,
+        LEGIT_COOLDOWN
     }
 
     private State state = State.IDLE;
@@ -92,9 +114,28 @@ public final class ServerHelper extends Module {
     // предмет приходилось поднимать из инвентаря) его исходный слот.
     private int restoreSlot = -1;
     private int invSourceSlot = -1;
+    // Легитный цикл: сколько тиков уже ждём остановки спринта и в каком слоте
+    // хотбара лежит предмет. Слот меняется только клиентски — carried-item
+    // пакет ваниль шлёт сама перед use (ensureHasSentCarriedItem).
+    private int legitWaitTicks = 0;
+    private int legitSlot = -1;
+    // Окно отжатия forward. Читает KeyboardInputMixin: спринт гаснет ванильно,
+    // без setSprinting(false) и без ручных пакетов движения.
+    private int sprintHoldTicks = 0;
+    // Колесо выбора, когда несколько предметов висят на одной клавише: клавишу
+    // держат, подсвечивают плитку курсором, отпускание подтверждает выбор.
+    private boolean selecting = false;
+    private boolean selectMouse = false;
+    private int selectCode = BindSetting.UNBOUND;
+    private final List<String> selectKeys = new ArrayList<>();
+    private float selectCursorX = 0.0F;
+    private float selectCursorY = 0.0F;
+    private int selectHover = 0;
+    private float selectAnim = 0.0F;
 
     public ServerHelper() {
         super("ServerHelper", "Использование предметов по биндам", Category.COMBAT);
+        INSTANCE = this;
         setupConfigs();
         // Бинды предметов живут в модалке, а не в списке настроек, но сохраняться
         // в конфиг обязаны — поэтому регистрируем их скрытыми.
@@ -105,6 +146,9 @@ public final class ServerHelper extends Module {
                 vnPearl, vnWindCharge, vnCrossbow, vnSplashPotion, vnLingeringPotion)) {
             register(bind);
             bind.visible(() -> false);
+            // Несколько предметов разрешено вешать на одну клавишу: выбор между
+            // ними делает колесо на зажатии, а Binds не должен их растаскивать.
+            bind.allowShared();
         }
     }
 
@@ -251,69 +295,281 @@ public final class ServerHelper extends Module {
         holdTicks = 0;
         restoreSlot = -1;
         invSourceSlot = -1;
+        legitWaitTicks = 0;
+        legitSlot = -1;
+        sprintHoldTicks = 0;
+        closeSelect();
         MoveBlockUtility.unblock(this);
+    }
+
+    /** Идёт ли легитное окно отжатия forward (его читает KeyboardInputMixin). */
+    public boolean sprintHoldActive() {
+        return isEnabled() && sprintHoldTicks > 0;
+    }
+
+    private void closeSelect() {
+        selecting = false;
+        selectCode = BindSetting.UNBOUND;
+        selectHover = 0;
+    }
+
+    /**
+     * MouseHandlerMixin: пока колесо открыто, камера не крутится, а движение мыши
+     * ведёт виртуальный курсор. Дельты приходят уже умноженными на чувствительность
+     * (так их считает ванильный turnPlayer), поэтому делим обратно — колесо не
+     * зависит от настройки sens.
+     */
+    public boolean handleSelectTurn(double yawDelta, double pitchDelta) {
+        if (!selecting) return false;
+
+        double speed = mc.options.sensitivity().get() * 0.6 + 0.2;
+        double scale = speed * speed * speed * 8.0;
+        if (scale < 1.0E-4) {
+            scale = 1.0;
+        }
+
+        selectCursorX += (float) (yawDelta / scale);
+        selectCursorY += (float) (pitchDelta / scale);
+
+        float length = (float) Math.hypot(selectCursorX, selectCursorY);
+        if (length > SELECT_RADIUS) {
+            selectCursorX *= SELECT_RADIUS / length;
+            selectCursorY *= SELECT_RADIUS / length;
+            length = SELECT_RADIUS;
+        }
+        if (length >= SELECT_DEADZONE) {
+            selectHover = nearestSelectIndex(selectCursorX, selectCursorY);
+        }
+        return true;
+    }
+
+    private int nearestSelectIndex(float x, float y) {
+        int count = selectKeys.size();
+        if (count <= 1) return 0;
+
+        double step = Math.PI * 2.0 / count;
+        double angle = Math.atan2(y, x) + Math.PI / 2.0;
+        if (angle < 0.0) angle += Math.PI * 2.0;
+        return (int) Math.round(angle / step) % count;
     }
 
     @EventTarget
     public void onKeyboardInput(KeyboardInputEvent event) {
-        if (AutoTotem.isSwapping()) return;
-        if (event.getAction() != InputConstants.PRESS || mc.gui.screen() != null || PanelRefractions.isOpen() || state != State.IDLE) return;
+        if (AutoSwap.isSwapping()) return;
+        if (mc.gui.screen() != null || PanelRefractions.isOpen()) {
+            closeSelect();
+            return;
+        }
+
+        if (event.getAction() == InputConstants.RELEASE) {
+            handleSelectRelease(event.getKey(), false);
+            return;
+        }
+        if (event.getAction() != InputConstants.PRESS || selecting || state != State.IDLE) return;
         handleInput(event.getKey(), false);
     }
 
     @EventTarget
     public void onMouseInput(MouseInputEvent event) {
-        if (AutoTotem.isSwapping()) return;
-        if (event.getAction() != InputConstants.PRESS || mc.gui.screen() != null || PanelRefractions.isOpen() || state != State.IDLE) return;
+        if (AutoSwap.isSwapping()) return;
+        if (mc.gui.screen() != null || PanelRefractions.isOpen()) {
+            closeSelect();
+            return;
+        }
+
+        if (event.getAction() == InputConstants.RELEASE) {
+            if (handleSelectRelease(event.getButton(), true)) {
+                event.cancel();
+            }
+            return;
+        }
+        if (event.getAction() != InputConstants.PRESS || selecting || state != State.IDLE) return;
         if (handleInput(event.getButton(), true)) {
             event.cancel();
         }
     }
 
     private boolean handleInput(int keyOrButton, boolean isMouse) {
-        if (AutoTotem.isSwapping()) return false;
+        if (AutoSwap.isSwapping()) return false;
 
+        List<String> matched = matchesFor(keyOrButton, isMouse);
+        if (matched.isEmpty()) return false;
+        if (matched.size() == 1) return queueItem(matched.get(0));
+
+        openSelect(matched, keyOrButton, isMouse);
+        return true;
+    }
+
+    /** Все бинды включённых наборов, висящие на этой клавише. */
+    private List<String> matchesFor(int keyOrButton, boolean isMouse) {
+        List<String> matched = new ArrayList<>();
         if (packs.isEnabled("FunTime")) {
-            if (matches(ftDisorient, keyOrButton, isMouse)) return queueItem("ft_disorient");
-            if (matches(ftDust, keyOrButton, isMouse)) return queueItem("ft_dust");
-            if (matches(ftPlast, keyOrButton, isMouse)) return queueItem("ft_plast");
-            if (matches(ftSnow, keyOrButton, isMouse)) return queueItem("ft_snow");
-            if (matches(ftGodAura, keyOrButton, isMouse)) return queueItem("ft_god_aura");
-            if (matches(ftTrap, keyOrButton, isMouse)) return queueItem("ft_trap");
-            if (matches(ftFireSwirl, keyOrButton, isMouse)) return queueItem("ft_fire_swirl");
-
-            if (matches(ftHolyWater, keyOrButton, isMouse)) return queueItem("ft_holy_water");
-            if (matches(ftAnger, keyOrButton, isMouse)) return queueItem("ft_anger");
-            if (matches(ftPaladin, keyOrButton, isMouse)) return queueItem("ft_paladin");
-            if (matches(ftAssassin, keyOrButton, isMouse)) return queueItem("ft_assassin");
-            if (matches(ftRadiation, keyOrButton, isMouse)) return queueItem("ft_radiation");
-            if (matches(ftSleep, keyOrButton, isMouse)) return queueItem("ft_sleep");
-            if (matches(ftClapper, keyOrButton, isMouse)) return queueItem("ft_clapper");
+            collect(matched, ftDisorient, "ft_disorient", keyOrButton, isMouse);
+            collect(matched, ftDust, "ft_dust", keyOrButton, isMouse);
+            collect(matched, ftPlast, "ft_plast", keyOrButton, isMouse);
+            collect(matched, ftSnow, "ft_snow", keyOrButton, isMouse);
+            collect(matched, ftGodAura, "ft_god_aura", keyOrButton, isMouse);
+            collect(matched, ftTrap, "ft_trap", keyOrButton, isMouse);
+            collect(matched, ftFireSwirl, "ft_fire_swirl", keyOrButton, isMouse);
+            collect(matched, ftHolyWater, "ft_holy_water", keyOrButton, isMouse);
+            collect(matched, ftAnger, "ft_anger", keyOrButton, isMouse);
+            collect(matched, ftPaladin, "ft_paladin", keyOrButton, isMouse);
+            collect(matched, ftAssassin, "ft_assassin", keyOrButton, isMouse);
+            collect(matched, ftRadiation, "ft_radiation", keyOrButton, isMouse);
+            collect(matched, ftSleep, "ft_sleep", keyOrButton, isMouse);
+            collect(matched, ftClapper, "ft_clapper", keyOrButton, isMouse);
         }
         if (packs.isEnabled("HolyWorld")) {
-            if (matches(hwExplosiveTrap, keyOrButton, isMouse)) return queueItem("hw_exp_trap");
-            if (matches(hwNormalTrap, keyOrButton, isMouse)) return queueItem("hw_norm_trap");
-            if (matches(hwStun, keyOrButton, isMouse)) return queueItem("hw_stun");
-            if (matches(hwSnow, keyOrButton, isMouse)) return queueItem("hw_snow");
-            if (matches(hwFire, keyOrButton, isMouse)) return queueItem("hw_fire");
-            if (matches(hwPumpkin, keyOrButton, isMouse)) return queueItem("hw_pumpkin");
+            collect(matched, hwExplosiveTrap, "hw_exp_trap", keyOrButton, isMouse);
+            collect(matched, hwNormalTrap, "hw_norm_trap", keyOrButton, isMouse);
+            collect(matched, hwStun, "hw_stun", keyOrButton, isMouse);
+            collect(matched, hwSnow, "hw_snow", keyOrButton, isMouse);
+            collect(matched, hwFire, "hw_fire", keyOrButton, isMouse);
+            collect(matched, hwPumpkin, "hw_pumpkin", keyOrButton, isMouse);
         }
         if (packs.isEnabled("Vanilla")) {
-            if (matches(vnPearl, keyOrButton, isMouse)) return queueItem("vn_pearl");
-            if (matches(vnWindCharge, keyOrButton, isMouse)) return queueItem("vn_wind");
-            if (matches(vnCrossbow, keyOrButton, isMouse)) return queueItem("vn_crossbow");
-            if (matches(vnSplashPotion, keyOrButton, isMouse)) return queueItem("vn_splash");
-            if (matches(vnLingeringPotion, keyOrButton, isMouse)) return queueItem("vn_lingering");
+            collect(matched, vnPearl, "vn_pearl", keyOrButton, isMouse);
+            collect(matched, vnWindCharge, "vn_wind", keyOrButton, isMouse);
+            collect(matched, vnCrossbow, "vn_crossbow", keyOrButton, isMouse);
+            collect(matched, vnSplashPotion, "vn_splash", keyOrButton, isMouse);
+            collect(matched, vnLingeringPotion, "vn_lingering", keyOrButton, isMouse);
         }
-        return false;
+        return matched;
+    }
+
+    private void collect(List<String> matched, BindSetting setting, String key, int keyOrButton, boolean isMouse) {
+        if (matches(setting, keyOrButton, isMouse)) {
+            matched.add(key);
+        }
+    }
+
+    private void openSelect(List<String> matched, int keyOrButton, boolean isMouse) {
+        selecting = true;
+        selectKeys.clear();
+        selectKeys.addAll(matched);
+        selectMouse = isMouse;
+        selectCode = isMouse ? BindSetting.mouse(keyOrButton) : BindSetting.key(keyOrButton);
+        selectCursorX = 0.0F;
+        selectCursorY = 0.0F;
+        selectHover = 0;
+    }
+
+    /**
+     * Отпускание той же клавиши подтверждает подсвеченный предмет. Короткий тап
+     * (курсор так и не вышел из мёртвой зоны) даёт первую плитку — как раньше.
+     */
+    private boolean handleSelectRelease(int keyOrButton, boolean isMouse) {
+        if (!selecting || isMouse != selectMouse) return false;
+        int code = isMouse ? BindSetting.mouse(keyOrButton) : BindSetting.key(keyOrButton);
+        if (code != selectCode) return false;
+
+        int index = Math.max(0, Math.min(selectHover, selectKeys.size() - 1));
+        String chosen = selectKeys.isEmpty() ? null : selectKeys.get(index);
+        closeSelect();
+        if (chosen != null && state == State.IDLE) {
+            queueItem(chosen);
+        }
+        return true;
     }
 
     private boolean matches(BindSetting setting, int keyOrBtn, boolean isMouse) {
         return isMouse ? setting.matchesMouse(keyOrBtn) : setting.matches(keyOrBtn);
     }
 
+    /** Колесо выбора: плитки предметов по кругу, виртуальный курсор и подпись под ним. */
+    @EventTarget
+    public void onRender2D(Render2DEvent event) {
+        if (!isEnabled() || mc.player == null) return;
+
+        float target = selecting && mc.gui.screen() == null ? 1.0F : 0.0F;
+        selectAnim += (target - selectAnim) * 0.32F;
+        if (selectAnim <= 0.02F || selectKeys.isEmpty()) return;
+
+        int count = selectKeys.size();
+        float centerX = mc.getWindow().getGuiScaledWidth() / 2.0F;
+        float centerY = mc.getWindow().getGuiScaledHeight() / 2.0F;
+        float anim = selectAnim * (2.0F - selectAnim);
+        float ring = SELECT_RADIUS * anim;
+        float tile = SELECT_TILE * (0.8F + 0.2F * anim);
+        float half = tile / 2.0F;
+        float step = (float) (Math.PI * 2.0 / count);
+        int accent = Theme.getAccentColor();
+        GuiGraphicsExtractor extractor = event.getGuiGraphicsExtractor();
+
+        Render2D.drawCircle(centerX, centerY, ring + tile, ColorUtil.rgba(8, 9, 14, Math.round(105 * anim)));
+        Render2D.drawCircleOutline(centerX, centerY, ring, 0.9F, ColorUtil.withAlpha(accent, Math.round(70 * anim)));
+
+        for (int i = 0; i < count; i++) {
+            float tileX = centerX + tileOffsetX(i, step, ring);
+            float tileY = centerY + tileOffsetY(i, step, ring);
+            boolean hovered = i == selectHover;
+            int fill = hovered ? ColorUtil.withAlpha(accent, Math.round(80 * anim))
+                    : ColorUtil.rgba(16, 18, 26, Math.round(205 * anim));
+            int border = hovered ? ColorUtil.withAlpha(accent, Math.round(220 * anim))
+                    : ColorUtil.rgba(255, 255, 255, Math.round(24 * anim));
+            Render2D.drawRoundedRectWithOutline(tileX - half, tileY - half, tile, tile, 6.0F, fill, 0.9F, border);
+        }
+
+        float cursorX = centerX + selectCursorX * anim;
+        float cursorY = centerY + selectCursorY * anim;
+        Render2D.drawCircle(cursorX, cursorY, 5.0F, ColorUtil.withAlpha(accent, Math.round(60 * anim)));
+        Render2D.drawCircle(cursorX, cursorY, 2.3F, ColorUtil.rgba(255, 255, 255, Math.round(235 * anim)));
+
+        Render2DUtil.flush();
+
+        if (extractor != null) {
+            float icon = 18.0F;
+            float iconScale = icon / 16.0F;
+            for (int i = 0; i < count; i++) {
+                float tileX = centerX + tileOffsetX(i, step, ring);
+                float tileY = centerY + tileOffsetY(i, step, ring);
+                String key = selectKeys.get(i);
+                extractor.pose().pushMatrix();
+                extractor.pose().translate(tileX - icon / 2.0F, tileY - icon / 2.0F);
+                extractor.pose().scale(iconScale, iconScale);
+                extractor.item(iconFor(key), 0, 0);
+                extractor.pose().popMatrix();
+
+                if (countItem(key) <= 0) {
+                    Render2D.drawRoundedRect(tileX - half + 1.5F, tileY - half + 1.5F, tile - 3.0F, tile - 3.0F, 5.0F,
+                            ColorUtil.rgba(10, 11, 17, Math.round(155 * anim)));
+                }
+            }
+        }
+
+        String hoveredKey = selectKeys.get(Math.max(0, Math.min(selectHover, count - 1)));
+        ItemInfo info = itemConfigs.get(hoveredKey);
+        if (info != null) {
+            String label = info.displayName + "  ·  x" + countItem(hoveredKey);
+            float textSize = 8.0F;
+            float pillWidth = Fonts.SF_MEDIUM.getWidth(label, textSize) + 16.0F;
+            float pillHeight = 15.0F;
+            float pillX = centerX - pillWidth / 2.0F;
+            float pillY = centerY + ring + tile + 10.0F;
+            Render2D.drawRoundedRectWithOutline(pillX, pillY, pillWidth, pillHeight, 4.0F,
+                    ColorUtil.rgba(16, 18, 26, Math.round(210 * anim)), 0.8F,
+                    ColorUtil.withAlpha(accent, Math.round(90 * anim)));
+            Fonts.drawString(Fonts.SF_MEDIUM, label, pillX + 8.0F,
+                    pillY + (pillHeight - Fonts.SF_MEDIUM.textHeight(textSize)) / 2.0F + 0.4F,
+                    textSize, ColorUtil.multiplyAlpha(HudStyle.TEXT_PRIMARY, anim));
+        }
+    }
+
+    private static float tileOffsetX(int index, float step, float ring) {
+        return (float) Math.cos(-Math.PI / 2.0 + step * index) * ring;
+    }
+
+    private static float tileOffsetY(int index, float step, float ring) {
+        return (float) Math.sin(-Math.PI / 2.0 + step * index) * ring;
+    }
+
+    private ItemStack iconFor(String key) {
+        ItemInfo info = itemConfigs.get(key);
+        return info == null ? ItemStack.EMPTY : new ItemStack(info.item);
+    }
+
     private boolean queueItem(String key) {
-        if (AutoTotem.isSwapping()) return false;
+        if (AutoSwap.isSwapping()) return false;
         // Цикл уже идёт: второй бинд перезаписал бы pendingInfo, а вместе с ним и
         // restoreSlot/invSourceSlot — предмет, поднятый из инвентаря, остался бы
         // лежать в чужом слоте, а заряжаемый арбалет был бы выброшен из руки
@@ -324,10 +580,20 @@ public final class ServerHelper extends Module {
         if (info == null || !inGame() || player() == null) return false;
 
         LocalPlayer player = player();
-        if (findInHotbar(player, info) == -1 && findInMainInventory(player, info) == -1) return false;
+        boolean legit = mode.is("Legit");
+        // Легит не трогает инвентарь: поднять предмет в хотбар можно только
+        // container-кликом, а это как раз тот пакет, которого он избегает.
+        if (findInHotbar(player, info) == -1 && (legit || findInMainInventory(player, info) == -1)) return false;
 
         pendingInfo = info;
-        state = State.STOP_SPRINT;
+        if (legit) {
+            legitWaitTicks = 0;
+            legitSlot = -1;
+            sprintHoldTicks = LEGIT_SPRINT_HOLD;
+            state = State.LEGIT_WAIT;
+        } else {
+            state = State.STOP_SPRINT;
+        }
         announce(key, info);
         return true;
     }
@@ -344,12 +610,22 @@ public final class ServerHelper extends Module {
             return;
         }
 
-        if (AutoTotem.isSwapping()) {
+        if (AutoSwap.isSwapping()) {
             reset();
             return;
         }
 
+        // Экран мог открыться мимо нас (инвентарь, ESC): колесо закрываем, иначе
+        // отпускание клавиши после закрытия экрана подтвердило бы выбор вслепую.
+        if (selecting && mc.gui.screen() != null) {
+            closeSelect();
+        }
+
         LocalPlayer player = player();
+
+        if (sprintHoldTicks > 0) {
+            sprintHoldTicks--;
+        }
 
         switch (state) {
             // Тик перед использованием гасим спринт. Сервер видит «предмет
@@ -411,6 +687,78 @@ public final class ServerHelper extends Module {
                 }
             }
 
+            // Легит: ждём, пока спринт погаснет сам от отжатия forward. Тик
+            // ожидания нужен, чтобы STOP_SPRINTING ушёл на сервер раньше use.
+            case LEGIT_WAIT -> {
+                if (player.isSprinting()) {
+                    sprintHoldTicks = Math.max(sprintHoldTicks, LEGIT_SPRINT_HOLD);
+                    if (++legitWaitTicks > LEGIT_WAIT_MAX_TICKS) {
+                        reset();
+                    }
+                    return;
+                }
+
+                int slot = findInHotbar(player, pendingInfo);
+                if (slot == -1) {
+                    reset();
+                    return;
+                }
+
+                restoreSlot = player.getInventory().getSelectedSlot();
+                if (slot != restoreSlot) {
+                    player.getInventory().setSelectedSlot(slot);
+                }
+                legitSlot = slot;
+                state = State.LEGIT_USE;
+            }
+
+            // Use следующим тиком: к этому моменту клиент уже не спринтует, а
+            // carried-item пакет ваниль отправит сама перед use-пакетом.
+            case LEGIT_USE -> {
+                if (player.isSprinting()) {
+                    sprintHoldTicks = Math.max(sprintHoldTicks, LEGIT_SPRINT_HOLD);
+                    legitWaitTicks = 0;
+                    state = State.LEGIT_WAIT;
+                    return;
+                }
+
+                if (findInHotbar(player, pendingInfo) == -1) {
+                    reset();
+                    return;
+                }
+
+                if (legitSlot != -1 && player.getInventory().getSelectedSlot() != legitSlot) {
+                    player.getInventory().setSelectedSlot(legitSlot);
+                }
+
+                InventoryUtil.useDirect(player);
+
+                if (player.isUsingItem()) {
+                    holdTicks = Math.min(60, Math.max(2, player.getUseItem().getUseDuration(player) + 1));
+                    state = State.LEGIT_HOLD;
+                    return;
+                }
+
+                finishLegitUse(player);
+            }
+
+            case LEGIT_HOLD -> {
+                if (--holdTicks <= 0 || !player.isUsingItem()) {
+                    if (player.isUsingItem()) {
+                        gameMode().releaseUsingItem(player);
+                    }
+                    finishLegitUse(player);
+                }
+            }
+
+            case LEGIT_COOLDOWN -> {
+                if (--cooldownTicks <= 0) {
+                    state = State.IDLE;
+                    pendingInfo = null;
+                    legitSlot = -1;
+                }
+            }
+
             case IDLE -> {
             }
         }
@@ -466,6 +814,23 @@ public final class ServerHelper extends Module {
         restoreSlot = -1;
         cooldownTicks = 2;
         state = State.COOLDOWN;
+    }
+
+    /**
+     * Легитный финал: слот возвращаем только клиенту. Сервер узнает о возврате
+     * из carried-item пакета, который ваниль шлёт сама перед следующим use/attack —
+     * ровно так в 26.3 работает и обычный скролл.
+     */
+    private void finishLegitUse(LocalPlayer player) {
+        if (swapBack.getValue() && restoreSlot != -1
+                && player.getInventory().getSelectedSlot() != restoreSlot) {
+            player.getInventory().setSelectedSlot(restoreSlot);
+        }
+
+        restoreSlot = -1;
+        legitSlot = -1;
+        cooldownTicks = 2;
+        state = State.LEGIT_COOLDOWN;
     }
 
     /**
@@ -526,9 +891,12 @@ public final class ServerHelper extends Module {
         PotionContents contents = stack.get(DataComponents.POTION_CONTENTS);
         if (contents == null) return false;
 
+        // getAllEffects() отдаёт и эффекты базового зелья из компонента POTION, и
+        // кастомные. Раньше читались только customEffects(), поэтому обычное зелье
+        // (customEffects пуст) не совпадало ни с одним биндом на FunTime.
         Map<Holder<MobEffect>, Integer> activeEffects = new HashMap<>();
-        for (MobEffectInstance instance : contents.customEffects()) {
-            activeEffects.put(instance.getEffect(), instance.getAmplifier());
+        for (MobEffectInstance instance : contents.getAllEffects()) {
+            activeEffects.merge(instance.getEffect(), instance.getAmplifier(), Math::max);
         }
 
         if (activeEffects.isEmpty()) return false;

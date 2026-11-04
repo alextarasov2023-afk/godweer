@@ -24,12 +24,6 @@ public final class MiasmWorlds {
         }
 
         register(AffectedWorlds.lazy(
-                () -> gate(Client.INSTANCE.moduleManager.getAmbience(), Ambience::usesSky),
-                AmbienceRenderer::new,
-                (feature, renderer, context) -> renderer.renderSky(feature, context.cameraRenderState()),
-                AmbienceRenderer::release
-        ));
-        register(AffectedWorlds.lazy(
                 () -> {
                     ShaderSky sky = Client.INSTANCE.moduleManager.getModule(ShaderSky.class);
                     return (sky != null && sky.isState()) ? sky : null;
@@ -41,8 +35,7 @@ public final class MiasmWorlds {
         register(AffectedWorlds.lazy(
                 () -> {
                     Rain rain = Client.INSTANCE.moduleManager.getRain();
-                    boolean weatherDisabled = Removals.INSTANCE != null && Removals.INSTANCE.isWeatherDisabled();
-                    return rain != null && rain.isState() && !weatherDisabled ? rain : null;
+                    return rain != null && rain.isState() ? rain : null;
                 },
                 RainRenderer::new,
                 (module, renderer, context) -> renderer.render(module, context.tickDelta()),

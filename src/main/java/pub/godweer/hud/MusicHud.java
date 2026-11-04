@@ -33,14 +33,14 @@ public final class MusicHud extends HudElement implements IMinecraft {
 
     private static final float PAD_X = 8.0F;
     private static final float PAD_BOTTOM = 6.0F;
-    private static final float HEADER_H = 19.0F;
+    private static final float HEADER_H = 14.0F;
     private static final float ART_SIZE = 30.0F;
-    private static final float ART_RADIUS = 5.0F;
+    private static final float ART_RADIUS = 6.0F;
     private static final float GAP = 8.0F;
     private static final float BADGE_GAP = 6.0F;
     private static final float PROGRESS_H = 2.5F;
     private static final float PROGRESS_TRACK_H = 2.0F;
-    private static final float RADIUS = 8.0F;
+    private static final float RADIUS = 7.0F;
 
     private static final float TITLE_SIZE = 8.0F;
     private static final float ARTIST_SIZE = 7.0F;
@@ -141,7 +141,7 @@ public final class MusicHud extends HudElement implements IMinecraft {
 
         // ----- layout -----
         float artX = x + PAD_X;
-        float artY = y + HEADER_H + 4.0F;
+        float artY = y + HEADER_H + 3.0F;
         this.artX = artX;
         this.artY = artY;
 
@@ -190,7 +190,7 @@ public final class MusicHud extends HudElement implements IMinecraft {
 
         // ----- card -----
         HudStyle.drawCard(x, y, width, height, RADIUS);
-        HudStyle.drawHeader(x, y, width, HEADER_H, "Music", IconUse.MUSIC);
+        HudStyle.drawLabel(x, y, width, HEADER_H, "Music", IconUse.MUSIC);
 
         // ----- playing indicator (pulsing dot in the header) -----
         if (track.playing()) {
@@ -207,9 +207,7 @@ public final class MusicHud extends HudElement implements IMinecraft {
             Render2D.drawTexture(artworkTexture, artX, artY, ART_SIZE, ART_SIZE, ART_RADIUS, 0xFFFFFFFF);
         } else {
             Render2D.drawRoundedRect(artX, artY, ART_SIZE, ART_SIZE, ART_RADIUS,
-                    ColorUtil.withAlpha(accent, 38));
-            Render2D.drawRoundedOutline(artX, artY, ART_SIZE, ART_SIZE, ART_RADIUS, 0.7F,
-                    ColorUtil.withAlpha(accent, 90));
+                    HudStyle.ROW_BG_ACTIVE);
             Fonts.drawIconFittedCentered(IconUse.MUSIC, artX + ART_SIZE / 2.0F, artY + ART_SIZE / 2.0F,
                     ART_SIZE * 0.44F, ColorUtil.withAlpha(accent, 220));
         }
@@ -235,10 +233,8 @@ public final class MusicHud extends HudElement implements IMinecraft {
             float badgeX = x + width - PAD_X - badgeW;
             float badgeY = artY + 2.0F;
 
-            Render2D.drawRoundedRectWithOutline(badgeX, badgeY, badgeW, badgeH, 3.0F,
-                    ColorUtil.withAlpha(accent, track.playing() ? 26 : 14),
-                    0.6F,
-                    ColorUtil.withAlpha(accent, track.playing() ? 80 : 55));
+            Render2D.drawRoundedRect(badgeX, badgeY, badgeW, badgeH, 3.0F,
+                    HudStyle.PILL_BG);
             Fonts.drawCenteredString(Fonts.SF_MEDIUM, badgeText, badgeX + badgeW / 2.0F,
                     badgeY + (badgeH - Fonts.SF_MEDIUM.textHeight(BADGE_SIZE)) / 2.0F + 0.3F,
                     BADGE_SIZE, ColorUtil.withAlpha(accent, track.playing() ? 235 : 160));
@@ -283,8 +279,8 @@ public final class MusicHud extends HudElement implements IMinecraft {
         if (!lyricText.isEmpty()) {
             float lyricsY = rowY + BTN_SIZE + 4.0F;
             float lyricsW = width - PAD_X * 2.0F;
-            Render2D.drawRoundedRectWithOutline(x + PAD_X, lyricsY, lyricsW, lyricsWindowH, 4.0F,
-                    ColorUtil.withAlpha(accent, 12), 0.5F, ColorUtil.withAlpha(accent, 65));
+            Render2D.drawRoundedRect(x + PAD_X, lyricsY, lyricsW, lyricsWindowH, 4.0F,
+                    HudStyle.ROW_BG);
 
             String shown = ServerGui.ellipsize(lyricText, lyricsW - 10.0F, 7.0F);
             float textY = lyricsY + (nextLyricText.isEmpty()
@@ -332,7 +328,7 @@ public final class MusicHud extends HudElement implements IMinecraft {
 
             if (hover) {
                 Render2D.drawRoundedRect(startX + i * (BTN_SIZE + BTN_GAP) - 2.0F, rowY - 2.0F,
-                        BTN_SIZE + 4.0F, BTN_SIZE + 4.0F, 3.0F, ColorUtil.withAlpha(accent, 40));
+                        BTN_SIZE + 4.0F, BTN_SIZE + 4.0F, 3.0F, HudStyle.ROW_BG_ACTIVE);
             }
 
             float dx = startX + i * (BTN_SIZE + BTN_GAP) + (BTN_SIZE * (1.0F - scale)) / 2.0F;

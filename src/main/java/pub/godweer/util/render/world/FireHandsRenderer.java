@@ -55,6 +55,8 @@ public final class FireHandsRenderer {
 
     private int width;
     private int height;
+    private int preparedWidth;
+    private int preparedHeight;
     private boolean prepared;
     private boolean pendingTrailClear = true;
     private long lastFrameNanos;
@@ -66,12 +68,18 @@ public final class FireHandsRenderer {
         if (!shouldRun(module, mainTarget)) {
             this.prepared = false;
             this.lastFrameNanos = 0L;
+            // Руки не рисуются (третье лицо, F1, пустые руки): старую историю
+            // шлейфа не храним — иначе при возврате в первое лицо она вспыхнет
+            // призрачным огнём там, где руки были много секунд назад.
+            this.pendingTrailClear = true;
             return;
         }
 
         initBuffers();
         ensureTargets(mainTarget.width, mainTarget.height);
         copyMainTo(mainTarget, this.beforeColor, "fire hands before");
+        this.preparedWidth = mainTarget.width;
+        this.preparedHeight = mainTarget.height;
         this.prepared = true;
     }
 
@@ -85,9 +93,25 @@ public final class FireHandsRenderer {
         Minecraft mc = Minecraft.getInstance();
         RenderTarget mainTarget = mc.gameRenderer.mainRenderTarget();
         if (!valid(mainTarget)) {
+            this.pendingTrailClear = true;
+            return;
+        }
+        // Снимок «до рук» сделан в другом разрешении (ресайз окна между
+        // этапами): маска рук из такой пары кадров накрыла бы весь экран.
+        if (mainTarget.width != this.preparedWidth || mainTarget.height != this.preparedHeight) {
+            this.pendingTrailClear = true;
+            this.lastFrameNanos = 0L;
             return;
         }
         ensureTargets(mainTarget.width, mainTarget.height);
+
+        float elapsed = this.lastFrameNanos == 0L ? 0.0F
+                : (float) ((now() - this.lastFrameNanos) / 1.0E9);
+        // Долгая пауза (окно, лаг, переключение модуля): старый шлейф уже не
+        // соответствует положению рук, начинаем историю заново.
+        if (elapsed > 0.5F) {
+            this.pendingTrailClear = true;
+        }
 
         if (this.pendingTrailClear) {
             var encoder = RenderSystem.getDevice().createCommandEncoder();

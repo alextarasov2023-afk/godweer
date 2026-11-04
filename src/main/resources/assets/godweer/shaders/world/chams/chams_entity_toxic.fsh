@@ -9,8 +9,6 @@ in vec3 viewNormal;
 
 out vec4 fragColor;
 
-// Toxic: cells of slime that swell, pop and drip upward, with bright walls
-// between the bubbles. vertexColor.rgb = base colour, a = phase.
 vec2 hash22(vec2 p) {
     p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3)));
     return fract(sin(p) * 43758.5453);
@@ -35,6 +33,9 @@ float cells(vec2 uv, float t) {
     return second - nearest;
 }
 
+// Toxic: glossy slime cells that swell, pop and climb the body, with bright
+// membranes between the bubbles and a wet highlight sliding over them.
+// vertexColor.rgb = base colour, a = phase.
 void main() {
     float phase = vertexColor.a * 6.28318;
     vec3 base = vertexColor.rgb;
@@ -49,14 +50,14 @@ void main() {
     float skin = smoothstep(0.06, 0.5, wall);
     float edge = 1.0 - smoothstep(0.0, 0.14, wall);
 
-    vec3 dark = base * 0.28;
-    vec3 body = mix(dark, base * 1.15, skin);
+    vec3 dark = base * 0.22;
+    vec3 body = mix(dark, base * 1.1, skin);
     vec3 col = body;
-    col += mix(base, vec3(1.0, 1.0, 0.55), 0.6) * edge * 1.9;
+    col += mix(base, vec3(1.0, 1.0, 0.6), 0.65) * edge * 2.0;
 
-    // Wet highlights sliding over the slime.
-    float drip = sin(uv.x * 3.1 + phase * 2.0) * 0.5 + 0.5;
-    col += base * pow(drip, 8.0) * 0.7;
+    // Wet highlight sliding over the membrane.
+    float gloss = pow(0.5 + 0.5 * sin(uv.x * 2.3 + uv.y * 1.7 + phase * 2.0), 10.0);
+    col += mix(vec3(1.0), base, 0.5) * gloss * 0.55;
 
     float rim = pow(1.0 - ndv, 2.1);
     col += mix(base, vec3(0.8, 1.0, 0.6), 0.5) * rim * 1.8;

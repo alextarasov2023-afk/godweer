@@ -20,8 +20,6 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-import pub.godweer.util.game.AHUtils;
-import pub.godweer.module.impl.misc.AHHelper;
 import pub.godweer.module.impl.misc.ItemScroller;
 
 import java.util.ArrayList;
@@ -49,11 +47,6 @@ public abstract class AbstractContainerScreenMixin extends Screen {
     @Unique private Button godweer$lootChestBtn;
     @Unique private Button godweer$storeChestBtn;
     @Unique private Button godweer$dropChestBtn;
-
-    @Unique private boolean godweer$isAuction = false;
-    @Unique private Slot godweer$cheapSlot = null;
-    @Unique private Slot godweer$goodSlot = null;
-    @Unique private long godweer$lastAhScan = 0L;
 
     protected AbstractContainerScreenMixin(Component title) {
         super(title);
@@ -156,118 +149,6 @@ public abstract class AbstractContainerScreenMixin extends Screen {
             }
             if (!hasMore) { this.godweer$isDroppingChest = false; this.godweer$updateButtonLabels(); }
         }
-
-        if (AHHelper.INSTANCE != null && AHHelper.INSTANCE.isEnabled()) {
-            this.godweer$isAuction = AHUtils.isAuction(screen.getMenu(), this.title);
-            long now = System.currentTimeMillis();
-            if (this.godweer$isAuction && now - this.godweer$lastAhScan > 100L) {
-                this.godweer$lastAhScan = now;
-                godweer$scanAuctionSlots(screen);
-            }
-        } else {
-            this.godweer$cheapSlot = null;
-            this.godweer$goodSlot = null;
-        }
-    }
-
-    @Unique
-    private void godweer$scanAuctionSlots(AbstractContainerScreen<?> screen) {
-        List<Slot> validSlots = new ArrayList<>();
-        int maxSlots = Math.min(45, screen.getMenu().slots.size());
-
-        for (int i = 0; i < maxSlots; i++) {
-            Slot slot = screen.getMenu().slots.get(i);
-            ItemStack stack = slot.getItem();
-            if (AHHelper.INSTANCE.shouldIgnore(stack)) continue;
-
-            long price = AHUtils.getPrice(stack);
-            if (price > 0 && price != Long.MAX_VALUE) {
-                validSlots.add(slot);
-            }
-        }
-
-        Slot green = null;
-        Slot yellow = null;
-
-        if (!validSlots.isEmpty()) {
-            long lowestTotal = Long.MAX_VALUE;
-            int bestGreenScore = -1;
-
-            for (Slot slot : validSlots) {
-                ItemStack stack = slot.getItem();
-                long price = AHUtils.getPrice(stack);
-                int score = AHHelper.INSTANCE.getEnchantPriorityScore(stack);
-
-                if (score > bestGreenScore || (score == bestGreenScore && price < lowestTotal)) {
-                    bestGreenScore = score;
-                    lowestTotal = price;
-                    green = slot;
-                }
-            }
-
-            if (validSlots.size() > 1) {
-                long lowestUnit = Long.MAX_VALUE;
-                int bestYellowScore = -1;
-
-                for (Slot slot : validSlots) {
-                    if (slot == green) continue;
-                    ItemStack stack = slot.getItem();
-                    long price = AHUtils.getPrice(stack);
-                    int count = Math.max(1, stack.getCount());
-                    long unitPrice = price / count;
-                    int score = AHHelper.INSTANCE.getEnchantPriorityScore(stack);
-
-                    if (score > bestYellowScore || (score == bestYellowScore && unitPrice < lowestUnit)) {
-                        bestYellowScore = score;
-                        lowestUnit = unitPrice;
-                        yellow = slot;
-                    }
-                }
-            }
-        }
-
-        this.godweer$cheapSlot = green;
-        this.godweer$goodSlot = yellow;
-    }
-
-    @Inject(method = "extractSlots", at = @At("TAIL"))
-    private void godweer$drawAhHighlights(GuiGraphicsExtractor graphics, int mouseX, int mouseY, CallbackInfo ci) {
-        if (AHHelper.INSTANCE == null || !AHHelper.INSTANCE.isEnabled() || !this.godweer$isAuction) return;
-
-        if (this.godweer$cheapSlot != null) {
-            int sx = this.godweer$cheapSlot.x;
-            int sy = this.godweer$cheapSlot.y;
-            graphics.fill(sx, sy, sx + 16, sy + 16, AHHelper.INSTANCE.cheapSlotColor.getValue());
-        }
-
-        if (this.godweer$goodSlot != null) {
-            int sx = this.godweer$goodSlot.x;
-            int sy = this.godweer$goodSlot.y;
-            graphics.fill(sx, sy, sx + 16, sy + 16, AHHelper.INSTANCE.goodSlotColor.getValue());
-        }
-    }
-
-    @Inject(method = "getTooltipFromContainerItem", at = @At("RETURN"), cancellable = true)
-    private void godweer$addUnitPriceToTooltip(ItemStack stack, CallbackInfoReturnable<List<Component>> cir) {
-        if (AHHelper.INSTANCE == null || !AHHelper.INSTANCE.isEnabled() || !AHHelper.INSTANCE.showPricePerUnit.get() || !this.godweer$isAuction) return;
-        if (stack.isEmpty() || stack.getCount() <= 1) return;
-
-        long totalPrice = AHUtils.getPrice(stack);
-        if (totalPrice == Long.MAX_VALUE || totalPrice <= 0) return;
-
-        long unitPrice = totalPrice / stack.getCount();
-        List<Component> original = new ArrayList<>(cir.getReturnValue());
-
-        Component unitText = Component.literal("§7Цена за шт: §a$" + formatPrice(unitPrice));
-        original.add(unitText);
-        cir.setReturnValue(original);
-    }
-
-    @Unique
-    private String formatPrice(long price) {
-        if (price >= 1_000_000) return String.format("%.1fM", price / 1_000_000.0);
-        if (price >= 1_000) return String.format("%.1fK", price / 1_000.0);
-        return String.valueOf(price);
     }
 
     @Unique
@@ -290,8 +171,6 @@ public abstract class AbstractContainerScreenMixin extends Screen {
         this.godweer$isLootingChest = false;
         this.godweer$isStoringChest = false;
         this.godweer$dropChestBtn = null;
-        this.godweer$cheapSlot = null;
-        this.godweer$goodSlot = null;
     }
 
     @Inject(method = "mouseDragged", at = @At("HEAD"), cancellable = true)

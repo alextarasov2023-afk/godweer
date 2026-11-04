@@ -27,44 +27,29 @@ public class Modules {
     public ElytraHelper elytraHelper;
     public NameTags nameTags;
     public Interface anInterface;
-    public GuiWalk guiWalk;
-    public Removals removals;
     public Rain rain;
-    public Ambience ambience;
     public ShaderSky shaderSky;
     public AirStuck airStuck;
     public AutoSwap autoSwap;
     public ElytraMotion elytraMotion;
     public ClickPearl clickPearl;
     public ServerHelper serverHelper;
-    public WaterSpeed waterSpeed;
     public NoForward noForward;
-    public Timer timer;
     public Music music;
-    public BetterMinecraft betterMinecraft;
-    public FreeLook freeLook;
     public ShaderHands shaderHands;
     public GlowHands glowHands;
     public Chams chams;
     public ViewModel viewModel;
     public SwingAnimation swingAnimation;
-    public PopEffect popEffect;
-    public AutoTotem autoTotem;
-    public BlockHighlight blockHighlight;
-    public JumpCircles jumpCircles;
     public FreeCam freeCam;
     public ItemScroller itemScroller;
     public FullBright fullBright;
-    public AHHelper ahHelper;
-    public AntiPush antiPush;
-    public AutoTool autoTool;
-    public Particles particles;
-    public Criticals criticals;
     public KillAura killAura;
+    public KillAura1 killAura1;
+    public KillAura2 killAura2;
+    public KillAura3 killAura3;
     public NoDelay noDelay;
     public TargetEsp targetEsp;
-    public Prediction prediction;
-    public Lines lines;
     public Xray xray;
     public BlockEsp blockEsp;
     public EntityEsp entityEsp;
@@ -81,43 +66,28 @@ public class Modules {
         this.sprint = new Sprint();
         this.elytraHelper = new ElytraHelper();
         this.fullBright = new FullBright();
-        this.criticals = new Criticals();
         this.killAura = new KillAura();
+        this.killAura1 = new KillAura1();
+        this.killAura2 = new KillAura2();
+        this.killAura3 = new KillAura3();
         this.noDelay = new NoDelay();
-        this.ahHelper = new AHHelper();
-        this.antiPush = new AntiPush();
-        this.autoTool = new AutoTool();
-        this.popEffect = new PopEffect();
         this.itemScroller = new ItemScroller();
-        this.waterSpeed = new WaterSpeed();
         this.noForward = new NoForward();
-        this.jumpCircles = new JumpCircles();
         this.freeCam = new FreeCam();
         this.swingAnimation = new SwingAnimation();
         this.viewModel = new ViewModel();
-        this.blockHighlight = new BlockHighlight();
-        this.autoTotem = new AutoTotem();
         this.shaderHands = new ShaderHands();
         this.glowHands = new GlowHands();
         this.chams = new Chams();
-        this.betterMinecraft = new BetterMinecraft();
-        this.guiWalk = new GuiWalk();
-        this.removals = new Removals();
-        this.freeLook = new FreeLook();
         this.serverHelper = new ServerHelper();
-        this.timer = new Timer();
         this.airStuck = new AirStuck();
         this.autoSwap = new AutoSwap();
         this.elytraMotion = new ElytraMotion();
         this.clickPearl = new ClickPearl();
-        this.ambience = new Ambience();
         this.shaderSky = new ShaderSky();
         this.nameTags = new NameTags();
         this.rain = new Rain();
-        this.particles = new Particles();
         this.targetEsp = new TargetEsp();
-        this.prediction = new Prediction();
-        this.lines = new Lines();
         this.xray = new Xray();
         this.blockEsp = new BlockEsp();
         this.entityEsp = new EntityEsp();
@@ -132,6 +102,9 @@ public class Modules {
                 this.clickGui,
                 this.anInterface,
                 this.killAura,
+                this.killAura1,
+                this.killAura2,
+                this.killAura3,
                 this.noDelay,
                 this.fullBright,
                 this.nameTags,
@@ -141,12 +114,9 @@ public class Modules {
                 this.chams,
                 this.rain,
                 this.targetEsp,
-                this.prediction,
-                this.lines,
                 this.xray,
                 this.blockEsp,
                 this.entityEsp,
-                this.particles,
                 this.trails,
                 this.sprint,
                 this.elytraHelper,
@@ -162,23 +132,8 @@ public class Modules {
                 this.swingAnimation,
                 this.viewModel,
                 this.serverHelper,
-                this.criticals,
-                this.autoTotem,
-                this.autoTool,
-                this.antiPush,
-                this.ahHelper,
                 this.itemScroller,
-                this.waterSpeed,
-                this.timer,
-                this.freeCam,
-                this.freeLook,
-                this.guiWalk,
-                this.removals,
-                this.blockHighlight,
-                this.jumpCircles,
-                this.popEffect,
-                this.betterMinecraft,
-                this.ambience
+                this.freeCam
         );
     }
 

@@ -37,7 +37,15 @@ public class AccountManager {
 
     private final File accountsFile;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
-    private final ScheduledExecutorService autoSaveExecutor = Executors.newSingleThreadScheduledExecutor();
+    // Демонопоток обязателен: дефолтный фабрика даёт живой pool-N-thread-1, который
+    // после «Stopping!» не даёт JVM выйти, и ванильный shutdown-watchdog 26.3 через
+    // ~20 с пишет «Game crashed! Watchdog (Client shutdown from post-main)».
+    private final ScheduledExecutorService autoSaveExecutor =
+            Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread thread = new Thread(r, "Account-AutoSave-Thread");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     public AccountManager() {
         File dir = new File(new File(System.getProperty("user.home"), "godweer"), "configs");
@@ -52,7 +60,10 @@ public class AccountManager {
             } catch (Exception ignored) {}
         }, 2, 2, TimeUnit.MINUTES);
 
-        Runtime.getRuntime().addShutdownHook(new Thread(this::save));
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            autoSaveExecutor.shutdownNow();
+            save();
+        }));
     }
 
     public void addAccount(String name) {

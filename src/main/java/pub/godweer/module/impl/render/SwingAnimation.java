@@ -25,7 +25,7 @@ public final class SwingAnimation extends Module {
     public static SwingAnimation INSTANCE;
 
     public final ModeSetting mode = mode("Режим", "Flick",
-            "Flick", "Punch", "Slash", "Whip", "Spin", "Stab", "Bounce", "Shake", "Custom");
+            "Flick", "Punch", "Slash", "Spin", "Bounce", "Shake", "Custom");
     public final SliderSetting strength = slider("Сила", 1.0F, 0.0F, 2.5F, 0.05F);
     public final SliderSetting duration = slider("Длительность, мс", 240.0F, 60.0F, 900.0F, 10.0F);
     public final SliderSetting speed = slider("Скорость", 1.0F, 0.25F, 3.0F, 0.05F);
@@ -108,20 +108,10 @@ public final class SwingAnimation extends Module {
                 p.roll = -40.0F * k;
                 p.z = -0.16F * k;
             }
-            case "Whip" -> {
-                p.yaw = -58.0F * k;
-                p.roll = -26.0F * k;
-                p.x = 0.1F * k;
-            }
             case "Spin" -> {
                 p.roll = -300.0F * eased(u) * this.strength.get();
                 p.z = -0.1F * k;
                 p.scale = 1.0F + 0.1F * k;
-            }
-            case "Stab" -> {
-                p.z = -0.5F * k;
-                p.y = 0.06F * k;
-                p.pitch = -8.0F * k;
             }
             case "Bounce" -> {
                 p.y = 0.26F * k;

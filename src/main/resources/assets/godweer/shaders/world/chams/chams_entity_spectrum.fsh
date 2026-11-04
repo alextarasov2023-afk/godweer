@@ -9,14 +9,10 @@ in vec3 viewNormal;
 
 out vec4 fragColor;
 
-// Spectrum: a saturated rainbow running along the body and cycling with the
-// phase; base colour only sets where the band starts. vertexColor.rgb = base,
-// a = phase.
-vec3 hsv2rgb(vec3 c) {
-    vec3 p = abs(fract(c.xxx + vec3(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
-    return c.z * mix(vec3(1.0), clamp(p - 1.0, 0.0, 1.0), c.y);
-}
-
+// Spectrum: holographic foil. The film thickness follows the viewing angle, so
+// the body runs through the full spectrum as the camera turns — the same trick
+// a soap bubble uses — with fine foil grain and a slow drift on top.
+// vertexColor.rgb = base hue seed, a = phase.
 void main() {
     float phase = vertexColor.a * 6.28318;
     vec3 base = vertexColor.rgb;
@@ -24,22 +20,28 @@ void main() {
     vec3 N = normalize(viewNormal);
     vec3 V = normalize(-viewPos);
     float ndv = clamp(abs(dot(N, V)), 0.0, 1.0);
+    float fres = 1.0 - ndv;
 
-    // Hue runs down the body and scrolls with time; the UV adds a twist so
-    // the bands wrap around limbs instead of sitting flat.
-    float hue = viewPos.y * 0.22 + texCoord0.x * 0.35 + phase * 0.16;
-    float sat = 0.85 - 0.15 * ndv;
-    vec3 rainbow = hsv2rgb(vec3(fract(hue), sat, 1.0));
+    float thickness = fres * 2.4
+                    + sin(phase * 0.35) * 0.25
+                    + texCoord0.y * 0.55
+                    + texCoord0.x * 0.2;
 
-    // Energy pulses travelling along the same axis.
-    float pulse = sin(texCoord0.y * 60.0 - phase * 3.0) * 0.5 + 0.5;
-    vec3 col = mix(rainbow, base, 0.18);
-    col *= 0.72 + 0.42 * pulse * pulse;
-    col += rainbow * pow(pulse, 6.0) * 0.8;
+    // Thin-film interference: a cosine palette tuned to the visible spectrum.
+    vec3 film = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.33, 0.67) + thickness));
+    film = pow(film, vec3(1.25));
 
-    float rim = pow(1.0 - ndv, 2.0);
-    col += vec3(1.0) * rim * 0.9;
+    // The accent colour only seeds the tint, so every user still sees their own
+    // colour while the rainbow stays readable.
+    float seed = dot(base, vec3(0.2126, 0.7152, 0.0722));
+    vec3 tint = mix(film, film * base * 1.45, 0.3 + 0.25 * seed);
+
+    // Fine foil grain + angle-boosted edges.
+    float grain = 0.04 * sin(texCoord0.x * 140.0 + texCoord0.y * 37.0);
+    vec3 col = tint * (1.05 + grain);
+    col += tint * pow(fres, 3.0) * 1.2;
+    col += vec3(1.0) * pow(fres, 6.0) * 0.5;
 
     float lum = max(col.r, max(col.g, col.b));
-    fragColor = vec4(clamp(col, 0.0, 2.0), clamp(sqrt(max(lum * 0.92 + rim * 0.2, 0.05)), 0.0, 1.0));
+    fragColor = vec4(clamp(col, 0.0, 1.6), clamp(0.55 + lum * 0.45, 0.0, 1.0));
 }

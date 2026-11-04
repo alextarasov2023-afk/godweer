@@ -14,6 +14,7 @@ import pub.godweer.event.Events;
 import pub.godweer.event.list.LookEvent;
 import pub.godweer.ui.clickgui.PanelRefractions;
 import pub.godweer.module.impl.misc.FreeCam;
+import pub.godweer.module.impl.misc.ServerHelper;
 
 /**
  * Create by daun kvass
@@ -51,6 +52,13 @@ public abstract class MouseHandlerMixin {
     private void onTurnPlayer(LocalPlayer player, double yawDelta, double pitchDelta) {
         if (FreeCam.INSTANCE != null && FreeCam.INSTANCE.isEnabled()) {
             FreeCam.INSTANCE.turn(yawDelta, pitchDelta);
+            return;
+        }
+
+        // Пока открыто колесо выбора ServerHelper, камера стоит, а движение мыши
+        // уходит в его виртуальный курсор.
+        ServerHelper helper = ServerHelper.INSTANCE;
+        if (helper != null && helper.handleSelectTurn(yawDelta, pitchDelta)) {
             return;
         }
 

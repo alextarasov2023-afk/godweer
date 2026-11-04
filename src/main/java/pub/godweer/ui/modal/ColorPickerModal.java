@@ -69,8 +69,8 @@ public class ColorPickerModal implements Modal {
             this.y = mouseY - dragOffsetY;
         }
 
-        Render2D.drawBlur(x, y, w, h, 6.0F, ColorUtil.rgba(18, 18, 22, Math.round(210 * alpha)), alpha);
         Render2D.drawRoundedRect(x, y, w, h, 6.0F, ColorUtil.multiplyAlpha(Theme.BG_CARD, alpha));
+        Render2D.drawRoundedOutline(x, y, w, h, 6.0F, 0.8F, ColorUtil.multiplyAlpha(0xFF2D3D53, alpha));
 
         Fonts.drawString(Fonts.SF_MEDIUM, setting.getName(), x + 7, y + 4.5F, 9.5F, ColorUtil.multiplyAlpha(Theme.TEXT_MAIN, alpha));
 

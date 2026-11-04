@@ -9,53 +9,55 @@ in vec3 viewNormal;
 
 out vec4 fragColor;
 
-// Glitch: the body is cut into cells that jump sideways, split into RGB and
-// drop to black bars. Time is quantised into coarse steps, so the pattern
-// re-shuffles instead of drifting. vertexColor.rgb = base colour, a = phase.
-float hash12(float p) {
-    vec3 p3 = fract(vec3(p) * vec3(0.1031, 0.1030, 0.0973));
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-float hash13(vec3 p) {
+// Glitch: broken signal, not a mosaic. The body is cut into horizontal strips
+// only — each strip shifts its colour balance in coarse time steps, thin tears
+// run through the seams and the silhouette splits into RGB. Strips are
+// continuous along their length, so the pattern can never turn into blocks.
+// vertexColor.rgb = base colour, a = phase.
+float hash11(float p) {
     p = fract(p * 0.1031);
-    p += dot(p, p.yzx + 33.33);
-    return fract((p.x + p.y) * p.z);
+    p *= p + 33.33;
+    p *= p + p;
+    return fract(p);
 }
 
 void main() {
-    float phase = vertexColor.a * 6.28318;
     vec3 base = vertexColor.rgb;
 
     vec3 N = normalize(viewNormal);
     vec3 V = normalize(-viewPos);
     float ndv = clamp(abs(dot(N, V)), 0.0, 1.0);
+    float fres = 1.0 - ndv;
 
-    float jump = floor(phase * 5.0);
+    float phase = vertexColor.a * 6.28318;
+    // Time quantised into coarse steps: strips re-shuffle instead of drifting.
+    float tick = floor(vertexColor.a * 7.0);
 
-    vec2 cell = floor(vec2(texCoord0.x * 26.0, viewPos.y * 13.0));
-    float r = hash13(vec3(cell, jump));
+    float strip = viewPos.y * 15.0;
+    float edge = fract(strip);
+    float r = hash11(floor(strip) * 5.13 + tick * 91.7);
 
-    // Horizontal tear: whole bands of the model shift sideways for one step.
-    float bandJump = (hash12(cell.y * 7.0 + jump) - 0.5) * 0.7;
-    float shifted = texCoord0.x + bandJump;
-    float bars = step(fract(shifted * 0.5 + r * 0.4), 0.62);
+    // Only some strips tear; the rest keep the body readable.
+    float torn = smoothstep(0.6, 0.9, r);
+    float width = clamp(fwidth(strip) * 1.5, 0.05, 0.3);
+    float seam = (1.0 - smoothstep(1.0 - width, 1.0, edge)) * torn;
 
-    // RGB split: the channels sample the same cell with opposite offsets.
-    float split = (r - 0.5) * 0.9;
-    vec3 tint = base * (0.55 + 0.45 * r);
-    vec3 col = vec3(
-            tint.r * (0.6 + 0.4 * step(fract(texCoord0.x * 33.0 + split), 0.5)),
-            tint.g * 0.95,
-            tint.b * (0.6 + 0.4 * step(fract(texCoord0.x * 33.0 - split), 0.5)));
+    // RGB split grows on torn strips and towards the rim.
+    float split = torn * 0.45 + fres * 0.25;
+    vec3 col;
+    col.r = base.r * (1.0 + split);
+    col.g = base.g * (1.0 - split * 0.1);
+    col.b = base.b * (1.0 - split * 0.6);
+    col *= 0.55 + 0.45 * mix(1.0, r, torn);
 
-    col *= 0.55 + 0.45 * bars;
-    col += base * 0.5 * step(fract(texCoord0.y * 9.0 - jump * 0.31), 0.14);
+    // Slow rolling sweep, wide enough to read as light instead of a bar.
+    float sweep = 0.5 + 0.5 * sin(viewPos.y * 3.0 - phase * 1.4);
+    col *= 0.84 + 0.16 * sweep;
 
-    float rim = pow(1.0 - ndv, 2.0);
-    col += mix(base, vec3(1.0), 0.5) * rim * 1.5;
+    col += base * seam * 1.5;
+    col += mix(base, vec3(1.0), 0.45) * pow(fres, 2.0) * 1.3;
 
-    float lum = max(col.r, max(col.g, col.b));
-    fragColor = vec4(clamp(col, 0.0, 2.0), clamp(0.4 + lum * 0.6 + rim * 0.2, 0.0, 1.0));
+    float lum = clamp(dot(col, vec3(0.299, 0.587, 0.114)), 0.0, 1.6);
+    float alpha = clamp(0.34 + lum * 0.5 + pow(fres, 2.0) * 0.3, 0.0, 1.0);
+    fragColor = vec4(clamp(col, 0.0, 2.0), alpha);
 }

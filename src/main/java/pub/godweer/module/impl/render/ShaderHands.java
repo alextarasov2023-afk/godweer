@@ -10,21 +10,23 @@ import pub.godweer.util.style.Theme;
 import pub.godweer.util.render.world.ShaderHandsRenderer;
 
 /**
- * Simple animated shader fill for first-person hands.
+ * Шейдерная заливка рук от первого лица: маска рук из разницы глубины
+ * заливается выбранным эффектом (сияние, туманность, голографическая плёнка
+ * и т.д.). Сами эффекты — post-шейдеры в assets/godweer/shaders/post/hands.
  */
 public final class ShaderHands extends Module {
 
-    public static final String LAVA = "Lava";
-    public static final String FROST = "Frost";
-    public static final String GALAXY = "Galaxy";
+    public static final String AURORA = "Aurora";
+    public static final String NEBULA = "Nebula";
+    public static final String HOLO = "Holo";
+    public static final String CAUSTICS = "Caustics";
     public static final String EMBER = "Ember";
-    public static final String SLIME = "Slime";
-    public static final String SMOKE = "Smoke";
+    public static final String FROST = "Frost";
 
     public static ShaderHands INSTANCE;
 
     private final HeaderSetting main = header("Main");
-    private final ModeSetting style = mode("Style", LAVA, LAVA, FROST, GALAXY, EMBER, SLIME, SMOKE);
+    private final ModeSetting style = mode("Style", AURORA, AURORA, NEBULA, HOLO, CAUSTICS, EMBER, FROST);
     private final SliderSetting speed = slider("Speed", 1.4f, 0.1f, 5.0f, 0.1f);
     private final SliderSetting opacity = slider("Opacity", 0.9f, 0.0f, 1.0f, 0.02f);
     private final CheckBox bothHands = checkbox("Both Hands", true);
@@ -32,7 +34,7 @@ public final class ShaderHands extends Module {
     private final ShaderHandsRenderer renderer = new ShaderHandsRenderer();
 
     public ShaderHands() {
-        super("ShaderHands", "Заливка рук шейдером", Category.RENDER);
+        super("ShaderHands", "Красивая заливка рук: сияние, туманность, голограмма…", Category.RENDER);
         INSTANCE = this;
     }
 

@@ -1,11 +1,8 @@
 package pub.godweer.module.impl.render;
 
-import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.core.Holder;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
 import net.minecraft.util.Mth;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -35,8 +32,8 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.ItemEnchantments;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.scores.PlayerTeam;
 import org.joml.Matrix3x2fStack;
+import pub.godweer.util.ServerTags;
 import pub.godweer.util.style.ColorUtil;
 import pub.godweer.util.style.Theme;
 import pub.godweer.util.render.Render2D;
@@ -79,6 +76,8 @@ public final class NameTags extends Module {
     private static final float ICON = 7.5F;
     private static final float HEAD = 12.0F;
     private static final float HEAD_OFFSET = 0.30F;
+    private static final float TAG_TEXT_SCALE = 0.78F;
+    private static final float TAG_GAP = 4.5F;
 
     private static final EquipmentSlot[] EQUIPMENT_ORDER = {
             EquipmentSlot.MAINHAND,
@@ -89,7 +88,6 @@ public final class NameTags extends Module {
             EquipmentSlot.OFFHAND
     };
 
-    private record Donate(String name, int color) {}
     private record ItemStyle(int color, float textSize, float iconSize) {}
     private record EffectTag(String label, int color) {}
 
@@ -101,7 +99,7 @@ public final class NameTags extends Module {
             float height,
             long logOutTime,
             List<ItemStack> equipment,
-            Donate donates,
+            ServerTags.Tag tag,
             int health,
             int absorption,
             float maxHealth,
@@ -115,7 +113,7 @@ public final class NameTags extends Module {
             Vec3 position,
             float height,
             List<ItemStack> equipment,
-            Donate donates,
+            ServerTags.Tag tag,
             int health,
             int absorption,
             float maxHealth,
@@ -231,7 +229,7 @@ public final class NameTags extends Module {
                             player.position(),
                             player.getBbHeight(),
                             equipment(player),
-                            donates(player),
+                            tag(player),
                             (int) Math.ceil(player.getHealth()),
                             (int) Math.ceil(player.getAbsorptionAmount()),
                             player.getMaxHealth(),
@@ -268,7 +266,7 @@ public final class NameTags extends Module {
                                 cached.height,
                                 System.currentTimeMillis(),
                                 cached.equipment,
-                                cached.donates,
+                                cached.tag,
                                 cached.health,
                                 cached.absorption,
                                 cached.maxHealth,
@@ -356,10 +354,19 @@ public final class NameTags extends Module {
         float distVal = showDist ? mc.player.distanceTo(entity) : 0.0F;
         String distNum = showDist ? String.format(Locale.ROOT, distVal < 10.0F ? "%.1f" : "%.0f", distVal) : "";
 
-        // Calculate Main Pill Width (Watermark style: [Head] Nick | 20 hp | [Compass] 5.2m)
+        // Calculate Main Pill Width (Watermark style: [Head] Tag Nick | 20 hp | [Compass] 5.2m)
+        ServerTags.Tag tag = null;
+        if (entity instanceof AbstractClientPlayer player) {
+            CachedPlayer cached = this.playerCache.get(player.getUUID());
+            tag = cached != null ? cached.tag() : tag(player);
+        }
+
         float totalW = padX * 2.0F;
         if (hasHead) {
             totalW += headSz + 4.5F * unit;
+        }
+        if (tag != null) {
+            totalW += tagWidth(tag, unit) + TAG_GAP * unit;
         }
         totalW += font.getWidth(name, fontSz);
 
@@ -399,7 +406,12 @@ public final class NameTags extends Module {
             cx += headSz + 4.5F * unit;
         }
 
-        // 2. Player Nickname (clean, no extra labels around it)
+        // 2. Server tag exactly as it appears in the server tab list
+        if (tag != null) {
+            cx = drawTagText(tag, cx, cy, unit, accent, 1.0F);
+        }
+
+        // 3. Player Nickname (clean, no extra labels around it)
         int nameCol = isFriend ? ColorUtil.rgba(120, 245, 155, 255)
                 : targetFactor > 0.1F ? ColorUtil.lerp(primary, ColorUtil.rgba(255, 210, 215, 255), targetFactor)
                 : primary;
@@ -407,7 +419,7 @@ public final class NameTags extends Module {
         Fonts.drawString(font, name, cx, ty, fontSz, nameCol);
         cx += font.getWidth(name, fontSz);
 
-        // 3. HP + Absorption Segment
+        // 4. HP + Absorption Segment
         if (showHp) {
             cx = drawWatermarkDivider(cx, cy, segGap, unit, 1.0F);
             int hpCol = getHpColor(hpPct, false, accent);
@@ -425,7 +437,7 @@ public final class NameTags extends Module {
             cx += font.getWidth("hp", unitSz);
         }
 
-        // 4. Distance Segment (like WatermarkHud)
+        // 5. Distance Segment (like WatermarkHud)
         if (showDist) {
             cx = drawWatermarkDivider(cx, cy, segGap, unit, 1.0F);
             int distTint = distVal <= 4.5F ? ColorUtil.rgba(255, 95, 100, 255)
@@ -435,7 +447,7 @@ public final class NameTags extends Module {
                     distTint, primary, secondary, iconSz, fontSz, unitSz, unit);
         }
 
-        // 5. Active Effects sub-pill (Strength, Speed, Regen, Res, FireRes, Slow, etc.)
+        // 6. Active Effects sub-pill (Strength, Speed, Regen, Res, FireRes, Slow, etc.)
         float topEdgeY = pillY;
         if (this.infoElements.isEnabled("Эффекты")) {
             List<EffectTag> effects = collectImportantEffects(entity);
@@ -447,7 +459,7 @@ public final class NameTags extends Module {
             }
         }
 
-        // 6. Equipment & Armor Strip (with durability bars & key enchantments)
+        // 7. Equipment & Armor Strip (with durability bars & key enchantments)
         List<ItemStack> equipment = this.items.getValue() ? equipment(entity) : List.of();
         if (!equipment.isEmpty()) {
             if (itemsPos.getValue().equals("Под ногами")) {
@@ -636,6 +648,7 @@ public final class NameTags extends Module {
         String hpNum = String.valueOf(logged.health + logged.absorption);
         float totalW = padX * 2.0F
                 + headSz + 4.5F * unit
+                + (logged.tag != null ? tagWidth(logged.tag, unit) + TAG_GAP * unit : 0.0F)
                 + font.getWidth(logged.name, fontSz)
                 + segGap * 2.0F + 1.0F * unit
                 + font.getWidth(hpNum, fontSz) + 1.5F * unit + font.getWidth("hp", unitSz)
@@ -657,6 +670,10 @@ public final class NameTags extends Module {
         }
         cx += headSz + 4.5F * unit;
 
+        if (logged.tag != null) {
+            cx = drawTagText(logged.tag, cx, cy, unit, Theme.getAccentColor(), alpha);
+        }
+
         float ty = cy - font.textHeight(fontSz) / 2.0F + 0.35F * unit;
         float unitTy = cy - font.textHeight(unitSz) / 2.0F + 0.45F * unit;
         Fonts.drawString(font, logged.name, cx, ty, fontSz, ColorUtil.multiplyAlpha(HudStyle.TEXT_PRIMARY, alpha));
@@ -674,28 +691,64 @@ public final class NameTags extends Module {
         Fonts.drawString(font, timerStr, cx, ty, fontSz, ColorUtil.rgba(255, 105, 110, Math.round(255 * alpha)));
     }
 
+    private static float tagWidth(ServerTags.Tag tag, float unit) {
+        Minecraft mc = Minecraft.getInstance();
+        float w = 0.0F;
+        for (ServerTags.TagRun run : tag.runs()) {
+            w += mc.font.width(run.text());
+        }
+        return w * TAG_TEXT_SCALE * unit;
+    }
+
+    /**
+     * Тег рисуем ванильным шрифтом: сервер присылает юникодные/кастомные глифы
+     * (small caps и т.п.), которых нет в нашем MSDF, — в табе их рисует Font
+     * с юникод-фолбэком. Куски идут своими цветами, шрифт тот же, что в табе.
+     */
+    private static float drawTagText(ServerTags.Tag tag, float cx, float cy,
+                                     float unit, int accent, float alpha) {
+        Minecraft mc = Minecraft.getInstance();
+        var extractor = pub.godweer.util.RenderExtend.currentGuiGraphicsExtractor();
+        if (extractor == null) return cx;
+
+        float scale = TAG_TEXT_SCALE * unit;
+        float top = cy - mc.font.lineHeight * scale / 2.0F;
+
+        // Карточка и голова уже в очереди — сбрасываем их, чтобы текст лёг сверху.
+        Render2DUtil.flush();
+        var pose = extractor.pose();
+        pose.pushMatrix();
+        pose.translate(cx, top);
+        pose.scale(scale, scale);
+
+        float pen = 0.0F;
+        for (ServerTags.TagRun run : tag.runs()) {
+            int color = run.color() != 0 ? run.color() : accent;
+            extractor.text(mc.font, run.text(), Math.round(pen), 0, ColorUtil.multiplyAlpha(color, alpha), true);
+            pen += mc.font.width(run.text());
+        }
+
+        pose.popMatrix();
+        return cx + pen * scale + TAG_GAP * unit;
+    }
+
     private static void drawTagCard(float x, float y, float w, float h, float radius,
                                     boolean isFriend, float targetFactor, float alpha) {
         HudStyle.drawCard(x, y, w, h, radius, alpha);
 
         if (isFriend) {
             int friendCol = ColorUtil.rgba(72, 232, 128, Math.round(255 * alpha));
-            Render2D.drawGradientRound(x, y, w, h, radius,
-                    ColorUtil.withAlpha(friendCol, Math.round(28 * alpha)),
-                    ColorUtil.withAlpha(friendCol, Math.round(10 * alpha)),
-                    ColorUtil.rgba(0, 0, 0, 0),
-                    ColorUtil.rgba(0, 0, 0, 0));
+            // Flat tint only - no vertical gradient / glass sheen.
+            Render2D.drawRoundedRect(x, y, w, h, radius,
+                    ColorUtil.withAlpha(friendCol, Math.round(20 * alpha)));
             Render2D.drawRoundedOutline(x, y, w, h, radius, 0.9F,
                     ColorUtil.withAlpha(friendCol, Math.round(120 * alpha)));
         } else if (targetFactor > 0.02F) {
             int targetCol = ColorUtil.rgba(255, 76, 88, 255);
-            int tintA = Math.round(42 * targetFactor * alpha);
+            int tintA = Math.round(26 * targetFactor * alpha);
             int outA = Math.round(150 * targetFactor * alpha);
-            Render2D.drawGradientRound(x, y, w, h, radius,
-                    ColorUtil.withAlpha(targetCol, tintA),
-                    ColorUtil.withAlpha(targetCol, tintA / 2),
-                    ColorUtil.rgba(0, 0, 0, 0),
-                    ColorUtil.rgba(0, 0, 0, 0));
+            Render2D.drawRoundedRect(x, y, w, h, radius,
+                    ColorUtil.withAlpha(targetCol, tintA));
             Render2D.drawRoundedOutline(x, y, w, h, radius, 0.95F,
                     ColorUtil.withAlpha(targetCol, outA));
         }
@@ -1116,130 +1169,9 @@ public final class NameTags extends Module {
         return stacks;
     }
 
-    private static Donate donates(AbstractClientPlayer player) {
-        PlayerTeam team = player.getTeam();
-        if (team == null) return null;
-        Component prefix = team.getPlayerPrefix();
-        if (prefix == null) return null;
-
-        String raw = prefix.getString();
-        String name = cleanName(raw);
-        if (name.isEmpty()) return null;
-
-        Integer color = extractColor(prefix);
-        if (color == null) color = legacyColor(raw);
-
-        int rgb = color != null
-                ? ColorUtil.rgba((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF, 255)
-                : Theme.getAccentColor();
-        return new Donate(name, rgb);
-    }
-
-    private static String cleanName(String text) {
-        if (text == null || text.isEmpty()) return "";
-        String noColor = text.replaceAll("(?i)§[0-9a-fk-orx]", "").replaceAll("§.", "");
-
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < noColor.length(); i++) {
-            char c = normalizeSmallCapChar(noColor.charAt(i));
-            if (isRenderableChar(c)) {
-                sb.append(c);
-            }
-        }
-        return sb.toString().replaceAll("\\s+", " ").trim();
-    }
-
-    private static char normalizeSmallCapChar(char c) {
-        return switch (c) {
-            case 'ᴀ' -> 'A';
-            case 'ʙ' -> 'B';
-            case 'ᴄ' -> 'C';
-            case 'ᴅ' -> 'D';
-            case 'ᴇ' -> 'E';
-            case 'ғ' -> 'F';
-            case 'ɢ' -> 'G';
-            case 'ʜ' -> 'H';
-            case 'ɪ' -> 'I';
-            case 'ᴊ' -> 'J';
-            case 'ᴋ' -> 'K';
-            case 'ʟ' -> 'L';
-            case 'ᴍ' -> 'M';
-            case 'ɴ' -> 'N';
-            case 'ᴏ' -> 'O';
-            case 'ᴘ' -> 'P';
-            case 'ǫ', 'ϙ' -> 'Q';
-            case 'ʀ' -> 'R';
-            case 'ꜱ', 's' -> 'S';
-            case 'ᴛ' -> 'T';
-            case 'ᴜ' -> 'U';
-            case 'ᴠ' -> 'V';
-            case 'ᴡ' -> 'W';
-            case 'ʏ' -> 'Y';
-            case 'ᴢ' -> 'Z';
-            case 'а' -> 'А';
-            case 'б' -> 'Б';
-            case 'в' -> 'В';
-            case 'г' -> 'Г';
-            case 'д' -> 'Д';
-            case 'е' -> 'E';
-            case 'ж' -> 'Ж';
-            case 'з' -> 'З';
-            case 'и' -> 'И';
-            case 'й' -> 'Й';
-            case 'к' -> 'К';
-            case 'л' -> 'Л';
-            case 'м' -> 'М';
-            case 'н' -> 'Н';
-            case 'о' -> 'О';
-            case 'п' -> 'П';
-            case 'р' -> 'Р';
-            case 'с' -> 'С';
-            case 'т' -> 'Т';
-            case 'у' -> 'У';
-            case 'ф' -> 'Ф';
-            case 'х' -> 'Х';
-            case 'ц' -> 'Ц';
-            case 'ч' -> 'Ч';
-            case 'ш' -> 'Ш';
-            case 'щ' -> 'Щ';
-            case 'ъ' -> 'Ъ';
-            case 'ы' -> 'Ы';
-            case 'ь' -> 'Ь';
-            case 'э' -> 'Э';
-            case 'ю' -> 'Ю';
-            case 'я' -> 'Я';
-            default -> c;
-        };
-    }
-
-    private static boolean isRenderableChar(char c) {
-        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
-                || (c >= '0' && c <= '9')
-                || (c >= 'а' && c <= 'я') || (c >= 'А' && c <= 'Я') || c == 'ё' || c == 'Ё'
-                || c == ' ' || c == '[' || c == ']' || c == '(' || c == ')' || c == '{' || c == '}'
-                || c == '-' || c == '+' || c == '_' || c == '|' || c == ':' || c == '.' || c == '!'
-                || c == '?' || c == '*' || c == '#' || c == '<' || c == '>';
-    }
-
-    private static Integer legacyColor(String text) {
-        for (int i = 0; i < text.length() - 1; i++) {
-            if (text.charAt(i) != '§') continue;
-            ChatFormatting formatting = ChatFormatting.getByCode(text.charAt(i + 1));
-            if (formatting == null) continue;
-            TextColor color = TextColor.fromLegacyFormat(formatting);
-            if (color != null) return color.getValue();
-        }
-        return null;
-    }
-
-    private static Integer extractColor(Component component) {
-        if (component == null) return null;
-        TextColor color = component.getStyle().getColor();
-        if (color != null) return color.getValue();
-        for (Component sibling : component.getSiblings()) {
-            Integer siblingColor = extractColor(sibling);
-            if (siblingColor != null) return siblingColor;
-        }
-        return null;
+    private static ServerTags.Tag tag(AbstractClientPlayer player) {
+        Minecraft mc = Minecraft.getInstance();
+        var info = mc.getConnection() != null ? mc.getConnection().getPlayerInfo(player.getUUID()) : null;
+        return ServerTags.tab(info, player.getGameProfile().name());
     }
 }

@@ -151,7 +151,7 @@ public final class ServerGui implements IMinecraft {
             float panelH = 24.0F;
             float px = (screenW - panelW) / 2.0F;
 
-            Render2D.drawBlur(px, y, panelW, panelH, 6.0F, BG, 1.0F);
+            Render2D.drawRoundedRect(px, y, panelW, panelH, 6.0F, BG);
             drawColoredCentered(name, screenW / 2.0F, y + 3.5F, 8.0F,
                     ColorUtil.rgba(240, 242, 248, 255));
 
@@ -240,7 +240,7 @@ public final class ServerGui implements IMinecraft {
         float px = (screenW - panelW) / 2.0F;
         float py = Math.max(10.0F, (screenH - panelH) / 3.0F);
 
-        Render2D.drawBlur(px, py, panelW, panelH, 8.0F, BG, 1.0F);
+        Render2D.drawRoundedRect(px, py, panelW, panelH, 8.0F, BG);
 
         String title = "Players — " + players.size();
         Fonts.drawString(Fonts.SF_MEDIUM, title, px + pad, py + pad - 1.0F, 8.5F,
@@ -391,7 +391,7 @@ public final class ServerGui implements IMinecraft {
         float px = screenW - panelW - 8.0F;
         float py = Math.max(8.0F, (screenH - panelH) / 2.0F - 20.0F);
 
-        Render2D.drawBlur(px, py, panelW, panelH, 8.0F, BG, 1.0F);
+        Render2D.drawRoundedRect(px, py, panelW, panelH, 8.0F, BG);
         if (titleFits) {
             drawColoredCentered(title, px + panelW / 2.0F, py + pad - 1.0F, 8.5F,
                     ColorUtil.withAlpha(Theme.getAccentColor(), 255));

@@ -28,6 +28,8 @@ public enum IconUse {
     WARN("B"),
     POTION("C"),
     CLOCK("D"),
+    /** Hourglass - distinct from CLOCK, used for tick/tps readouts. */
+    HOURGLASS("P"),
     SPUTNIK("E"),
     GROUP("F"),
     LINK("y"),

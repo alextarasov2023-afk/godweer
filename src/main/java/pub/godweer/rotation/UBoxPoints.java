@@ -1,6 +1,5 @@
 package pub.godweer.rotation;
 
-import net.minecraft.client.Minecraft;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.AABB;
@@ -18,51 +17,75 @@ public final class UBoxPoints {
 
     public record TargetPoint(Vec3 point, boolean isVisible) {}
 
-    // Последняя найденная видимая точка прицеливания: переиспользуем, пока она
-    // видна, вместо скана всех 20 точек (и прыжков ротации между ними) каждый тик.
+    // Выбранная точка хранится СВОИМ ИНДЕКСОМ в списке calculatePoints(), а не абсолютными
+    // координатами: каждый тик она заново привязывается к текущему хитбоксу. Абсолютная
+    // точка липнет к месту, где цель была в прошлом тике, и на любой стрейфе прицел
+    // остаётся смотреть в пустоту рядом с игроком.
     private static Entity lastPointTarget;
-    private static Vec3 lastVisiblePoint;
+    private static int lastPointIndex = -1;
+    // Липкость нужна против прыжков между двумя одинаковыми точками, а не против самого
+    // выбора: раз в этот срок всё равно пересобираем, чтобы точка успевала за телом.
+    private static final int RESCAN_TICKS = 8;
+    private static int rescanCounter = 0;
 
-    public static TargetPoint getBestPoint(Entity target) {
+    // Точка дальше радиуса удара ауре почти бесполезна и держит прицел на дальнем краю
+    // хитбокса. Штраф в «градусах» делает её выбором только когда ближе не видно ничего.
+    private static final double OUT_OF_REACH_PENALTY = 60.0D;
+
+    /**
+     * @param reachLimit радиус удара: точки дальше него получают штраф по ключу
+     *                   (0 или меньше — дистанцию не учитывать).
+     */
+    public static TargetPoint getBestPoint(Entity target, double reachLimit) {
         if (mc.player == null || target == null) return null;
 
         Vec3 eyes = mc.player.getEyePosition();
         AABB box = target.getBoundingBox();
-
-        double centerX = box.minX + (box.maxX - box.minX) * 0.5;
-        double centerZ = box.minZ + (box.maxZ - box.minZ) * 0.5;
-        double height = box.maxY - box.minY;
-
-        Vec3 stableChest = new Vec3(centerX, box.minY + height * 0.65, centerZ);
-        if (RayTraceUtils.canSeePoint(eyes, stableChest)) {
-            lastPointTarget = target;
-            lastVisiblePoint = stableChest;
-            return new TargetPoint(stableChest, true);
-        }
-
-        if (target == lastPointTarget && lastVisiblePoint != null
-                && RayTraceUtils.canSeePoint(eyes, lastVisiblePoint)) {
-            return new TargetPoint(lastVisiblePoint, true);
-        }
-        lastVisiblePoint = null;
-
         List<Vec3> points = calculatePoints(box);
-        float currentYaw = RotationHandler.isActive() ? RotationHandler.getServerYaw() : mc.player.getYRot();
-        float currentPitch = RotationHandler.isActive() ? RotationHandler.getServerPitch() : mc.player.getXRot();
 
-        // Сортируем по углу к текущему прицелу: первый видимый — это и есть
-        // лучший по углу, но рейкастов делаем ровно столько, сколько нужно.
-        points.sort(java.util.Comparator.comparingDouble(p -> getAngleDifference(eyes, p, currentYaw, currentPitch)));
-        for (Vec3 point : points) {
-            if (RayTraceUtils.canSeePoint(eyes, point)) {
-                lastPointTarget = target;
-                lastVisiblePoint = point;
-                return new TargetPoint(point, true);
+        if (target == lastPointTarget && lastPointIndex >= 0 && lastPointIndex < points.size()
+                && rescanCounter-- > 0) {
+            Vec3 sticky = points.get(lastPointIndex);
+            if (RayTraceUtils.canSeePoint(eyes, sticky)) return new TargetPoint(sticky, true);
+        }
+        rescanCounter = RESCAN_TICKS;
+        lastPointTarget = null;
+        lastPointIndex = -1;
+
+        float yaw = RotationHandler.isActive() ? RotationHandler.getServerYaw() : mc.player.getYRot();
+        float pitch = RotationHandler.isActive() ? RotationHandler.getServerPitch() : mc.player.getXRot();
+
+        int best = -1;
+        double bestKey = Double.MAX_VALUE;
+        for (int i = 0; i < points.size(); i++) {
+            Vec3 point = points.get(i);
+            if (!RayTraceUtils.canSeePoint(eyes, point)) continue;
+            double key = getAngleDifference(eyes, point, yaw, pitch);
+            if (reachLimit > 0.0D && eyes.distanceTo(point) > reachLimit) key += OUT_OF_REACH_PENALTY;
+            if (key < bestKey) {
+                bestKey = key;
+                best = i;
             }
         }
 
-        Vec3 wallPoint = getClosestBoxPoint(eyes, box);
-        return new TargetPoint(wallPoint, false);
+        if (best >= 0) {
+            lastPointTarget = target;
+            lastPointIndex = best;
+            return new TargetPoint(points.get(best), true);
+        }
+        return new TargetPoint(getClosestBoxPoint(eyes, box), false);
+    }
+
+    /**
+     * Есть ли на силуэте точка, до которой проходит луч. Ранний выход: по открытой
+     * цели это один-два рейкаста, полный обход — только когда цель из-за угла.
+     */
+    public static boolean hasVisiblePoint(Entity target, Vec3 eyes) {
+        if (mc.level == null || target == null) return false;
+        for (Vec3 point : calculatePoints(target.getBoundingBox())) {
+            if (RayTraceUtils.canSeePoint(eyes, point)) return true;
+        }
+        return false;
     }
 
     public static List<Vec3> calculatePoints(AABB box) {

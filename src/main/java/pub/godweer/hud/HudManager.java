@@ -53,6 +53,8 @@ public final class HudManager implements IMinecraft {
         register(new StaffHud());
         register(new HotkeysHud());
         register(new ServerItemsHud());
+        register(new ServerInfoHud());
+        register(new CooldownsHud());
         this.musicHud = new MusicHud();
         register(musicHud);
     }

@@ -93,7 +93,9 @@ public class ServerHelperModal implements Modal {
         float windowX = (screenWidth - windowW) / 2.0F;
         float windowY = (screenHeight - windowH) / 2.0F;
 
-        Render2D.drawBlur(windowX, windowY, windowW, windowH, 8.0F, ColorUtil.multiplyAlpha(0xFF101216, alpha), alpha);
+        Render2D.drawRoundedRect(windowX, windowY, windowW, windowH, 8.0F, ColorUtil.multiplyAlpha(0xFF0A0B0F, alpha));
+        Render2D.drawRoundedOutline(windowX, windowY, windowW, windowH, 8.0F, 0.9F,
+                ColorUtil.multiplyAlpha(0xFF2D3D53, alpha));
 
         Fonts.drawString(Fonts.SF_MEDIUM, "ServerHelper · бинды предметов", windowX + 14.0F, windowY + 12.0F, 10.0F,
                 ColorUtil.multiplyAlpha(Theme.TEXT_MAIN, alpha));

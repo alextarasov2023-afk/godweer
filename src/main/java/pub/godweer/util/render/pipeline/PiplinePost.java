@@ -19,7 +19,7 @@ import java.util.Optional;
 public class PiplinePost {
     private static final BindGroupLayout PUDDLES_LAYOUT = BindGroupLayout.builder().withUniform("SceneSampler", UniformType.COMBINED_IMAGE_SAMPLER).withUniform("DepthSampler", UniformType.COMBINED_IMAGE_SAMPLER).withUniform("WorldPuddlesUniforms", UniformType.UNIFORM_BUFFER).build();
     public static final RenderPipeline WORLD_PUDDLES = worldPostPipeline("puddles", "godweer:post/world_puddles", PUDDLES_LAYOUT);
-    private static final BindGroupLayout HAND_FILL_LAYOUT = BindGroupLayout.builder().withUniform("MaskSampler", UniformType.COMBINED_IMAGE_SAMPLER).withUniform("HandFillUniforms", UniformType.UNIFORM_BUFFER).build();
+    private static final BindGroupLayout HAND_FILL_LAYOUT = BindGroupLayout.builder().withUniform("MaskSampler", UniformType.COMBINED_IMAGE_SAMPLER).withUniform("DepthSampler", UniformType.COMBINED_IMAGE_SAMPLER).withUniform("HandFillUniforms", UniformType.UNIFORM_BUFFER).build();
     private static final BindGroupLayout CHAMS_ENTITY_LAYOUT = BindGroupLayout.builder()
             .withUniform("DynamicTransforms", UniformType.UNIFORM_BUFFER)
             .withUniform("Projection", UniformType.UNIFORM_BUFFER)
@@ -51,11 +51,12 @@ public class PiplinePost {
             .withCull(false)
             .build();
 
-    public static final RenderPipeline HAND_LAVA = handFillPipeline("hand_lava", "godweer:post/hands/hand_lava");    public static final RenderPipeline HAND_FROST = handFillPipeline("hand_frost", "godweer:post/hands/hand_frost");
-    public static final RenderPipeline HAND_GALAXY = handFillPipeline("hand_galaxy", "godweer:post/hands/hand_galaxy");
+    public static final RenderPipeline HAND_AURORA = handFillPipeline("hand_aurora", "godweer:post/hands/hand_aurora");
+    public static final RenderPipeline HAND_NEBULA = handFillPipeline("hand_nebula", "godweer:post/hands/hand_nebula");
+    public static final RenderPipeline HAND_HOLO = handFillPipeline("hand_holo", "godweer:post/hands/hand_holo");
+    public static final RenderPipeline HAND_CAUSTICS = handFillPipeline("hand_caustics", "godweer:post/hands/hand_caustics");
     public static final RenderPipeline HAND_EMBER = handFillPipeline("hand_ember", "godweer:post/hands/hand_ember");
-    public static final RenderPipeline HAND_SLIME = handFillPipeline("hand_slime", "godweer:post/hands/hand_slime");
-    public static final RenderPipeline HAND_SMOKE = handFillPipeline("hand_smoke", "godweer:post/hands/hand_smoke");
+    public static final RenderPipeline HAND_FROST = handFillPipeline("hand_frost", "godweer:post/hands/hand_frost");
     public static final RenderPipeline HANDS_GLOW_MASK = handsGlowPipeline("hands_glow_mask", "godweer:post/hands/hands_glow_mask", GLOW_HANDS_MASK_LAYOUT, glowFloatTarget());
     public static final RenderPipeline HANDS_GLOW_BLUR = handsGlowPipeline("hands_glow_blur", "godweer:post/hands/hands_glow_blur", GLOW_HANDS_BLUR_LAYOUT, glowFloatTarget());
     public static final RenderPipeline HANDS_GLOW_COMPOSITE = handsGlowPipeline("hands_glow_composite", "godweer:post/hands/hands_glow_composite", GLOW_HANDS_COMPOSITE_LAYOUT, new ColorTargetState(BlendFunction.ADDITIVE));
@@ -102,8 +103,10 @@ public class PiplinePost {
     // Один и тот же шейдер тела в двух вариантах: обычный (с проверкой глубины)
     // и through-walls (ALWAYS_PASS). Стили перечислены здесь — файл с суффиксом
     // стиля ищет ChamsHook, а ChamsRenderTypes строит по ним RenderType.
+    // glow/aurora были третьей и четвёртой вариацией одного и того же полосатого
+    // fresnel-поля, поэтому убраны: в списке остался один стиль на идею.
     public static final String[] CHAMS_STYLES = {
-            "glass", "glow", "plasma", "lava", "hologram", "glitch", "aurora", "spectrum", "cosmos", "toxic"};
+            "glass", "plasma", "lava", "cosmos", "toxic", "glitch", "spectrum", "wireframe"};
 
     public record ChamsPasses(RenderPipeline normal, RenderPipeline through) {
     }

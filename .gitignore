@@ -20,6 +20,22 @@ runs/
 # Локальные бэкапы исходников и старых сборок
 .trash/
 
+# Логи сборок и запуска
+*.log
+logs/
+
+# Даймпы байткода Mojang и выгрузки для проверки API (не исходники клиента)
+/net/
+mc.txt
+lp*.txt
+tasks.txt
+
+# Сторонние/чужие проекты и внутреннее ID инструментов
+horizon-mod/
+.freebuff/
+.workbuddy-ai/
+.zcodeignore
+
 # OS junk
 Thumbs.db
 Desktop.ini

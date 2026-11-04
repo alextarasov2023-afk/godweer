@@ -22,7 +22,6 @@ public class Client implements ModInitializer {
     public ConfigManager configManager;
     public FriendManager friendManager;
     public final Modules moduleManager = new Modules();
-    public static float Timer = 1.0f;
 
 
     @Override

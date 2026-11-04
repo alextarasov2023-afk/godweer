@@ -17,6 +17,9 @@ public abstract class HudElement {
     protected float grabDY;
     protected float scale = 1.0F;
 
+    /** Guards state updates that are requested from both shouldRender() and draw(). */
+    private long lastSyncNanos;
+
     protected HudElement(String id, String name, float x, float y, float width, float height) {
         this.id = id;
         this.name = name;
@@ -36,6 +39,19 @@ public abstract class HudElement {
         float w = width * scale;
         float h = height * scale;
         return mouseX >= x && mouseX <= x + w && mouseY >= y && mouseY <= y + h;
+    }
+
+    /**
+     * Elements whose visibility depends on live game data (binds, effects, staff,
+     * cooldowns) are polled twice per frame: once by {@link #shouldRender()} and
+     * once by {@link #draw(Render2DEvent)}. Without a guard their easing would run
+     * at double speed and flicker. Returns true only for the first call in a frame.
+     */
+    protected boolean beginSyncFrame() {
+        long now = System.nanoTime();
+        if (now - lastSyncNanos < 1_000_000L) return false;
+        lastSyncNanos = now;
+        return true;
     }
 
     public float getScale() { return scale; }

@@ -110,10 +110,8 @@ public final class ServerItemsHud extends HudElement implements IMinecraft {
             float pw = w * a;
             boolean empty = count <= 0;
 
-            Render2D.drawRoundedRectWithOutline(cx, cy, pw, H, RADIUS,
-                    ColorUtil.withAlpha(accent, Math.round((empty ? 12 : 30) * a)),
-                    0.65F,
-                    ColorUtil.withAlpha(accent, Math.round((empty ? 45 : 95) * a)));
+            Render2D.drawRoundedRect(cx, cy, pw, H, RADIUS,
+                    ColorUtil.multiplyAlpha(empty ? HudStyle.TRACK : HudStyle.PILL_BG, a));
 
             if (f > 0.02F) {
                 Render2D.drawRoundedOutline(cx - 1.0F, cy - 1.0F, pw + 2.0F, H + 2.0F, RADIUS + 1.0F, 1.0F,
